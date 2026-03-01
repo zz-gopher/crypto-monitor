@@ -1,0 +1,46 @@
+# ===== Go build artifacts =====
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# ===== Go workspace / tooling =====
+/vendor/
+/go.work
+/go.work.sum
+
+# ===== IDE / editor =====
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ===== Logs =====
+*.log
+
+# ===== Local config / secrets =====
+config.local.yaml
+config.*.local.yaml
+.env
+.env.*
+
+# ===== Outputs =====
+/output/
+/outputs/
+*.csv
+
+# ===== Runtime data / cache =====
+/data/
+/tmp/
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== OS =====
+Thumbs.db
