@@ -46,6 +46,7 @@ func (c *Checker) BalanceOf(address common.Address) (*provider.TokenBalance, err
 		TokenAddress: c.TokenAddress,
 		Balance:      readableBalance,
 		RawBalance:   rawBalance,
+		Decimals:     decimals,
 		Owner:        address,
 	}, nil
 }

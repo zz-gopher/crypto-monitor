@@ -11,6 +11,7 @@ type TokenBalance struct {
 	Symbol       string         // 代币符号
 	TokenAddress common.Address // 代币合约地址
 	Balance      *big.Float     // 人类可读余额
+	Decimals     uint8          // 代币精度
 	RawBalance   *big.Int       // 原始余额
 	Owner        common.Address // 代币所有者
 }

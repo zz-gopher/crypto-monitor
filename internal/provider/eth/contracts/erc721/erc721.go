@@ -42,6 +42,7 @@ func (c *Checker) BalanceOf(address common.Address) (*provider.TokenBalance, err
 		TokenAddress: c.TokenAddress,
 		Balance:      new(big.Float).SetInt(rawBalance),
 		RawBalance:   rawBalance,
+		Decimals:     1,
 		Owner:        address,
 	}, nil
 }
