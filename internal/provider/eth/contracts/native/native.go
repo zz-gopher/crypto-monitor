@@ -3,7 +3,6 @@ package native
 import (
 	"context"
 	"crypto-monitor/internal/provider"
-	"crypto-monitor/internal/provider/eth"
 	"crypto-monitor/tools"
 	"fmt"
 	"time"
@@ -16,9 +15,9 @@ type Checker struct {
 	EvmClient *ethclient.Client
 }
 
-func NewChecker(evmClient *eth.EvmClient) (*Checker, error) {
+func NewChecker(client *ethclient.Client) (*Checker, error) {
 	return &Checker{
-		EvmClient: evmClient.Client,
+		EvmClient: client,
 	}, nil
 }
 
@@ -38,5 +37,6 @@ func (c *Checker) BalanceOf(ctx context.Context, timeout time.Duration, address 
 		Balance:      balance,
 		RawBalance:   rawBalance,
 		Owner:        address,
+		Success:      true,
 	}, err
 }

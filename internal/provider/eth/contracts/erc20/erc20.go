@@ -3,12 +3,12 @@ package erc20
 import (
 	"context"
 	"crypto-monitor/internal/provider"
-	"crypto-monitor/internal/provider/eth"
 	"crypto-monitor/tools"
 	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 type Checker struct {
@@ -17,8 +17,8 @@ type Checker struct {
 }
 
 // NewChecker 通过代币合约地址 绑定已经部署的合约
-func NewChecker(tokenAddress common.Address, evmClient *eth.EvmClient) (*Checker, error) {
-	token, err := NewErc20(tokenAddress, evmClient.Client)
+func NewChecker(tokenAddress common.Address, client *ethclient.Client) (*Checker, error) {
+	token, err := NewErc20(tokenAddress, client)
 	if err != nil {
 		return nil, fmt.Errorf("绑定失败 %s: %w", tokenAddress.Hex(), err)
 	}
@@ -53,6 +53,7 @@ func (c *Checker) BalanceOf(ctx context.Context, timeout time.Duration, address 
 		RawBalance:   rawBalance,
 		Decimals:     decimals,
 		Owner:        address,
+		Success:      true,
 	}, nil
 }
 

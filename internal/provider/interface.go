@@ -18,6 +18,7 @@ type TokenBalance struct {
 	RawBalance   *big.Int       // 原始余额
 	Owner        common.Address // 代币所有者
 	Network      string         // 网络
+	Success      bool           // 是否查询成功
 }
 
 // AssetChecker 定义通用的查余额接口
