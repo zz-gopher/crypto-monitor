@@ -2,10 +2,13 @@ package eth
 
 import (
 	"context"
+	"crypto-monitor/internal/provider"
+	"crypto-monitor/tools"
 	"fmt"
 	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 

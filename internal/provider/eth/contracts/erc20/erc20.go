@@ -1,10 +1,12 @@
 package erc20
 
 import (
+	"context"
 	"crypto-monitor/internal/provider"
 	"crypto-monitor/internal/provider/eth"
 	"crypto-monitor/tools"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -26,19 +28,22 @@ func NewChecker(tokenAddress common.Address, evmClient *eth.EvmClient) (*Checker
 	}, nil
 }
 
-func (c *Checker) BalanceOf(address common.Address) (*provider.TokenBalance, error) {
-	rawBalance, err := c.Token.BalanceOf(nil, address)
+// BalanceOf 查询代币余额信息，包括代币名称和代币精度
+func (c *Checker) BalanceOf(ctx context.Context, timeout time.Duration, address common.Address) (*provider.TokenBalance, error) {
+	opts, cancel := tools.CallOpts(ctx, timeout)
+	defer cancel()
+	rawBalance, err := c.Token.BalanceOf(opts, address)
 	if err != nil {
 		return nil, fmt.Errorf("查询余额失败: %w", err)
 	}
-	// TODO 后续存储到数据库 节省RPC的消耗
-	symbol, err := c.Token.Symbol(nil)
+	// TODO 后续存储到数据库或Redis 节省RPC的消耗
+	symbol, err := tools.FetchSymbol(ctx, timeout, c.Token)
 	if err != nil {
-		symbol = "UNKNOWN"
+		return nil, err
 	}
-	decimals, err := c.Token.Decimals(nil)
+	decimals, err := c.GetDecimal(ctx, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("获取代币精度失败 %s: %w", c.TokenAddress.Hex(), err)
+		return nil, err
 	}
 	readableBalance := tools.FormatUnits(rawBalance, decimals)
 	return &provider.TokenBalance{
@@ -49,4 +54,16 @@ func (c *Checker) BalanceOf(address common.Address) (*provider.TokenBalance, err
 		Decimals:     decimals,
 		Owner:        address,
 	}, nil
+}
+
+// GetDecimal 获取代币精度
+func (c *Checker) GetDecimal(ctx context.Context, timeout time.Duration) (uint8, error) {
+	opts, cancel := tools.CallOpts(ctx, timeout)
+	defer cancel()
+	// 带上超时控制
+	decimals, err := c.Token.Decimals(opts)
+	if err != nil {
+		return 0, fmt.Errorf("获取代币精度失败 %s: %w", c.TokenAddress.Hex(), err)
+	}
+	return decimals, nil
 }

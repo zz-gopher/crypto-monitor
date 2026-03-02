@@ -1,6 +1,14 @@
 package tools
 
-import "math/big"
+import (
+	"context"
+	"crypto-monitor/internal/provider"
+	"fmt"
+	"math/big"
+	"time"
+
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+)
 
 // FormatUnits 把最小单位按 decimals 格式化成“人类单位”。
 func FormatUnits(balance *big.Int, decimals uint8) *big.Float {
@@ -19,4 +27,29 @@ func FormatUnits(balance *big.Int, decimals uint8) *big.Float {
 	result := new(big.Float).Quo(fBalance, fDivisor)
 
 	return result
+}
+
+// CallOpts 超时控制opts封装
+func CallOpts(ctx context.Context, timeout time.Duration) (*bind.CallOpts, func()) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	return &bind.CallOpts{Context: ctx}, cancel
+}
+
+// FetchSymbol ：通用查询 symbol，带超时控制。
+// - caller: 任何实现了 SymbolCaller 的合约绑定对象（ERC20/ERC721 都可）
+// - allowUnknown: 你可以选择失败时返回 "UNKNOWN" 还是把错误抛上去
+func FetchSymbol(
+	ctx context.Context,
+	timeout time.Duration,
+	caller provider.SymbolCaller,
+) (string, error) {
+
+	opts, cancel := CallOpts(ctx, timeout)
+	defer cancel()
+
+	symbol, err := caller.Symbol(opts)
+	if err != nil {
+		return "", fmt.Errorf("获取代币名称失败: %w", err)
+	}
+	return symbol, nil
 }

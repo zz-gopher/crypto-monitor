@@ -1,10 +1,13 @@
 package erc721
 
 import (
+	"context"
 	"crypto-monitor/internal/provider"
 	"crypto-monitor/internal/provider/eth"
+	"crypto-monitor/tools"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -27,8 +30,10 @@ func NewChecker(tokenAddress common.Address, evmClient *eth.EvmClient) (*Checker
 }
 
 // BalanceOf  查询指定地址ERC721代币,没有精度不需要转换
-func (c *Checker) BalanceOf(address common.Address) (*provider.TokenBalance, error) {
-	rawBalance, err := c.Token.BalanceOf(nil, address)
+func (c *Checker) BalanceOf(ctx context.Context, timeout time.Duration, address common.Address) (*provider.TokenBalance, error) {
+	opts, cancel := tools.CallOpts(ctx, timeout)
+	defer cancel()
+	rawBalance, err := c.Token.BalanceOf(opts, address)
 	if err != nil {
 		return nil, fmt.Errorf("查询余额失败: %w", err)
 	}
