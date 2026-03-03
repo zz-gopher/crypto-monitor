@@ -5,22 +5,25 @@ import (
 	"crypto-monitor/config"
 	"crypto-monitor/internal/provider/eth"
 	"crypto-monitor/internal/provider/eth/contracts/multicall3"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 )
 
-func InitNetworks(ctx context.Context, cfg config.Root, timeout time.Duration) (map[string]*NetworkRuntime, error) {
+// InitNetworks 初始化配置 连接rpc网络
+func InitNetworks(ctx context.Context, cfg *config.Root, timeout time.Duration) (map[string]*NetworkRuntime, map[string]error, error) {
 	runtimes := make(map[string]*NetworkRuntime, len(cfg.Networks))
-
+	failed := make(map[string]error)
 	for name, n := range cfg.Networks {
-		if name == "" {
-			return nil, fmt.Errorf("网络 %s: rpc配置为空", name)
+		if len(n.RPC) == 0 {
+			failed[name] = fmt.Errorf("rpc 列表为空")
+			continue
 		}
 		var (
 			client  *eth.EvmClient
 			rpcUsed string
-			err     error
+			lastErr error
 		)
 		for _, rpc := range n.RPC {
 			rpc = os.ExpandEnv(rpc) // 支持 ${ETH_RPC_URL}
@@ -31,17 +34,23 @@ func InitNetworks(ctx context.Context, cfg config.Root, timeout time.Duration) (
 				rpcUsed = rpc
 				break
 			}
+			lastErr = err
 		}
 		if client == nil {
-			return nil, fmt.Errorf("网络 %s: 所有rpc连接都失败: %w", name, err)
+			failed[name] = fmt.Errorf("网络 %s: 所有rpc连接都失败: %w", name, lastErr)
+			continue
 		}
 		// 防止rpc连接的网络不对应
 		if n.ChainID != 0 && int(client.ChainID.Int64()) != n.ChainID {
-			return nil, fmt.Errorf("网络 %s: chain_id 不匹配, cfg=%d node=%d", name, n.ChainID, client.ChainID.Int64())
+			client.Close()
+			failed[name] = fmt.Errorf("网络 %s: chain_id 不匹配, cfg=%d node=%d", name, n.ChainID, client.ChainID.Int64())
+			continue
 		}
 		multiChecker, err := multicall3.NewMultiChecker(client.Client)
 		if err != nil {
-			return nil, fmt.Errorf("网络 %s: 绑定 multicall 失败: %w", name, err)
+			client.Close()
+			failed[name] = fmt.Errorf("网络 %s: 绑定 multicall 失败: %w", name, err)
+			continue
 		}
 		runtimes[name] = &NetworkRuntime{
 			Name:         name,
@@ -53,5 +62,8 @@ func InitNetworks(ctx context.Context, cfg config.Root, timeout time.Duration) (
 			MultiChecker: multiChecker,
 		}
 	}
-	return runtimes, nil
+	if len(runtimes) == 0 {
+		return nil, failed, errors.New("无可用网络：全部初始化失败")
+	}
+	return runtimes, failed, nil
 }
