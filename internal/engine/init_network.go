@@ -46,6 +46,7 @@ func InitNetworks(ctx context.Context, cfg *config.Root, timeout time.Duration) 
 			failed[name] = fmt.Errorf("网络 %s: chain_id 不匹配, cfg=%d node=%d", name, n.ChainID, client.ChainID.Int64())
 			continue
 		}
+		// 绑定multicall3合约
 		multiChecker, err := multicall3.NewMultiChecker(client.Client)
 		if err != nil {
 			client.Close()

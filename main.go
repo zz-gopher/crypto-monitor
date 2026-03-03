@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"crypto-monitor/config"
+	"crypto-monitor/internal/engine"
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"time"
 )
 
 func main() {
@@ -18,22 +22,24 @@ func main() {
 		log.Fatalf("load config failed: %v", err)
 	}
 	if len(cfg.Networks) == 0 {
-		fmt.Errorf("aggregate3 返回数量不一致")
+		log.Fatalf("load config has no networks:")
 	}
-	fmt.Println("PollInterval:", cfg.App.PollInterval)
-	fmt.Println("Timeout:", cfg.App.Timeout)
-	fmt.Println("Concurrency:", cfg.App.Concurrency)
-	fmt.Println("RateLimit RPS:", cfg.App.RateLimit.RPS)
-	fmt.Println("RateLimit Burst:", cfg.App.RateLimit.Burst)
-	fmt.Println("MetadataCache Dir:", cfg.App.MetadataCache.Dir)
-	fmt.Println("MetadataCache TTL:", cfg.App.MetadataCache.TTL)
+	// 默认总超时设定为30秒
+	ctxAll, cancelAll := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelAll()
+	runtimes, failed, err := engine.InitNetworks(ctxAll, cfg, cfg.App.Timeout)
 
-	// 你也可以读 output/network/watchlists
-	fmt.Println("Console enabled:", cfg.Output.Console.Enabled)
-	fmt.Println("Networks count:", len(cfg.Networks))
-	fmt.Println("Watchlists count:", len(cfg.Watchlists))
-}
-
-func verify_config() {
-
+	if err != nil {
+		log.Fatalf("InitNetworks error: %v:", err)
+	}
+	if len(failed) > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "⚠️ 部分网络初始化失败（将跳过这些网络）：\n")
+		for name, e := range failed {
+			_, _ = fmt.Fprintf(os.Stderr, "   - %s: %v\n", name, e)
+		}
+	}
+	fmt.Printf("✅ 初始化成功网络数量: %d\n", len(runtimes))
+	for name, rt := range runtimes {
+		fmt.Printf("   - %s (chain_id=%d, rpc=%s, native=%s)\n", name, rt.ChainID, rt.RPCUsed, rt.NativeSymbol)
+	}
 }
