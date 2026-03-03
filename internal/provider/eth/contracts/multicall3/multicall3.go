@@ -29,6 +29,7 @@ const ContractAddress = "0xcA11bde05977b3631167028862bE2a173976CA11"
 type MultiChecker struct {
 	Client    *ethclient.Client
 	Multicall *Multicall3
+	MultiAddr common.Address
 }
 type callItem struct {
 	TokenAddr common.Address
@@ -50,6 +51,7 @@ func NewMultiChecker(client *ethclient.Client) (*MultiChecker, error) {
 	return &MultiChecker{
 		Client:    client,
 		Multicall: multi,
+		MultiAddr: multicallAddr,
 	}, nil
 }
 

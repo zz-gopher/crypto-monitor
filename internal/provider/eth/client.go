@@ -21,18 +21,18 @@ type EvmClient struct {
 }
 
 // NewClient 创建并初始化一个 EvmClient，连接到指定的 RPC 节点
-func NewClient(rpcUrl string, timeout time.Duration) (*EvmClient, error) {
+func NewClient(rpcUrl string, ctx context.Context, timeout time.Duration) (*EvmClient, error) {
 	var lastErr error
 	for i := 0; i < MaxRetries; i++ {
 		var client *ethclient.Client
 		var err error
 		// 带超时的连接控制 (避免节点挂了导致程序一直卡在 Dial)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		client, err = ethclient.DialContext(ctx, rpcUrl)
+		ctx2, cancel := context.WithTimeout(ctx, timeout)
+		client, err = ethclient.DialContext(ctx2, rpcUrl)
 		cancel()
 		if err == nil {
 			// 连接成功后，再查个 ChainID 确认节点真的活着
-			cidCtx, cidCancel := context.WithTimeout(context.Background(), timeout)
+			cidCtx, cidCancel := context.WithTimeout(ctx, timeout)
 			chainID, cidErr := client.ChainID(cidCtx)
 			cidCancel()
 			if cidErr == nil {
