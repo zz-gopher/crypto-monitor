@@ -2,11 +2,12 @@ package config
 
 import "time"
 
-// Root 对应整个配置文件最外层
+// Root 对应整个配置文件最外层（匹配你最新 YAML：networks + tokens + watchlists）
 type Root struct {
 	App        AppConfig              `yaml:"app"`
 	Output     OutputConfig           `yaml:"output"`
-	Networks   map[string]NetworkItem `yaml:"networks"` // key 是 ethereum-mainnet / arbitrum-one
+	Networks   map[string]NetworkItem `yaml:"networks"` // key: ethereum-mainnet / arbitrum-one / ...
+	Tokens     map[string]TokenDef    `yaml:"tokens"`   // key: USDT / USDC / ...
 	Watchlists []Watchlist            `yaml:"watchlists"`
 }
 
@@ -36,19 +37,31 @@ type NetworkItem struct {
 	NativeSymbol string   `yaml:"native_symbol"`
 }
 
-// Watchlist watchlists: [...]
-type Watchlist struct {
-	Name          string   `yaml:"name"`
-	Networks      []string `yaml:"networks"`
-	AddressSource string   `yaml:"address_source"`
-	Assets        []Asset  `yaml:"assets"`
+// TokenDef tokens: { USDT: {...}, ... }
+type TokenDef struct {
+	Type       string                    `yaml:"type"`        // erc20 / erc721 / ...
+	PerNetwork map[string]TokenOnNetwork `yaml:"per_network"` // key: network name
 }
 
-// Asset assets: [...]
-type Asset struct {
-	Type     string   `yaml:"type"`               // native / erc20
-	Contract string   `yaml:"contract,omitempty"` // native 时为空
-	Networks []string `yaml:"networks,omitempty"` // 可选：限制在哪些网络查询
+type TokenOnNetwork struct {
+	Contract string `yaml:"contract"`
+}
+
+// Watchlist watchlists: [...]
+type Watchlist struct {
+	Name        string     `yaml:"name"`
+	Networks    []string   `yaml:"networks"`
+	AddressGlob string     `yaml:"address_glob"`
+	Assets      []AssetRef `yaml:"assets"` // 要查询哪些资产
+}
+
+// AssetRef watchlists.assets: 支持 native / token
+type AssetRef struct {
+	// 1) 原生资产：写 type: native
+	Type string `yaml:"type,omitempty"` // native
+
+	// 2) 引用 token：写 token: USDT
+	Token string `yaml:"token,omitempty"`
 }
 
 type OutputConfig struct {

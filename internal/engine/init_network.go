@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// InitNetworks 初始化配置 连接rpc网络
+// InitNetworks 连接RPC网络,并绑定multicall合约
 func InitNetworks(ctx context.Context, cfg *config.Root, timeout time.Duration) (map[string]*NetworkRuntime, map[string]error, error) {
 	runtimes := make(map[string]*NetworkRuntime, len(cfg.Networks))
 	failed := make(map[string]error)

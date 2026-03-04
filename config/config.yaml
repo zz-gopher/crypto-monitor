@@ -18,12 +18,6 @@ app:
     dir: "./data/cache" # 缓存目录
     ttl: 720h           # 过期时间：30天（720h）。过期才重新链上探测
 
-# ====== 地址源 ======
-address_sources:
-  whales_txt:
-    type: txt_glob
-    path: "./data/addresses/*.txt"  # 地址文件路径
-
 # ====== 输出结构 ======
 output:
   # ===== 测试阶段：只看控制台 =====
@@ -56,39 +50,29 @@ output:
 
 # ====== 网络（RPC 节点）======
 networks:
-  ethereum-mainnet:
-    chain_id: 1
-    rpc:
-      - ${ETH_RPC_URL}
-    native_symbol: ETH
+  ethereum-mainnet: { chain_id: 1, rpc: ["${ETH_RPC_URL}"], native_symbol: ETH }
+  arbitrum-one:     { chain_id: 42161, rpc: ["${ARB_RPC_URL}"], native_symbol: ETH }
 
-  arbitrum-one:
-    chain_id: 42161
-    rpc:
-      - ${ARB_RPC_URL}
-    native_symbol: ETH
+tokens:
+  USDT:
+    type: erc20
+    per_network:
+      ethereum-mainnet: { contract: "0xdAC17F958D2ee523a2206206994597C13D831ec7" }
+      arbitrum-one:     { contract: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9" }
+
+  USDC:
+    type: erc20
+    per_network:
+      ethereum-mainnet: { contract: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }
+      arbitrum-one:     { contract: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" }
 
 # ====== 监控任务（组合网络 + 地址源 + 资产）======
 watchlists:
   - name: main-monitor
     networks: [ethereum-mainnet, arbitrum-one]  # 要跑哪些网络
-    address_source: whales_csv                  # 用哪个地址来源
+    address_glob: "./data/addresses/*.txt"                  # 用哪个地址来源 支持globe
 
     assets:
-      # 1) 原生资产（ETH）：走 eth_getBalance / BalanceAt
       - type: native
-
-      # 2) ERC-20：只填合约地址
-      # 程序会链上读取 decimals()/symbol()/name() 并缓存
-      - type: erc20
-        contract: "0xdAC17F958D2ee523a2206206994597C13D831ec7"  # USDT 主网
-        # 注意：同一 token 在不同链的合约地址不同
-        networks: [ethereum-mainnet]  # 可选：限制只在指定网络查询
-
-      - type: erc20
-        contract: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"  # USDT Arbitrum
-        networks: [arbitrum-one]
-
-      - type: erc20
-        contract: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH 主网
-        networks: [ethereum-mainnet]
+      - token: USDT
+      - token: USDC

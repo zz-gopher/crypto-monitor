@@ -33,7 +33,11 @@ func LoadCfg(path string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config file %s: %w", abs, err)
 	}
-
+	// 展开 ${ETH_RPC_URL} / ${ARB_RPC_URL} 这类占位符
+	expanded := os.ExpandEnv(string(data))
+	if hasUnexpandedEnv(expanded) {
+		return nil, fmt.Errorf("config contains unexpanded env vars, please set them in .env or system env")
+	}
 	var cfg Root
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("yaml unmarshal %s: %w", abs, err)
@@ -122,4 +126,19 @@ func loadOneTXTFile(filePath string, seen map[common.Address]struct{}) ([]Addres
 	}
 
 	return items, nil
+}
+
+func hasUnexpandedEnv(s string) bool {
+	// 很粗暴但好用：只要还有 ${ 就认为没替换干净
+	return contains(s, "${")
+}
+func contains(s, sub string) bool {
+	return len(sub) > 0 && (len(s) >= len(sub)) && (func() bool {
+		for i := 0; i+len(sub) <= len(s); i++ {
+			if s[i:i+len(sub)] == sub {
+				return true
+			}
+		}
+		return false
+	})()
 }
