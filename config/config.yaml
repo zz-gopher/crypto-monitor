@@ -1,4 +1,3 @@
-
 app:
   # 轮询：每隔多久跑一轮“全量查询”（network × addresses × assets）
   poll_interval: 60s
@@ -18,6 +17,12 @@ app:
   metadata_cache:
     dir: "./data/cache" # 缓存目录
     ttl: 720h           # 过期时间：30天（720h）。过期才重新链上探测
+
+# ====== 地址源 ======
+address_sources:
+  whales_txt:
+    type: txt_glob
+    path: "./data/addresses/*.txt"  # 地址文件路径
 
 # ====== 输出结构 ======
 output:
