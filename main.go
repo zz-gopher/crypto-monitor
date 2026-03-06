@@ -4,12 +4,16 @@ import (
 	"context"
 	"crypto-monitor/config"
 	"crypto-monitor/internal/engine"
+	"crypto-monitor/internal/provider"
+	"crypto-monitor/internal/provider/eth/contracts/multicall3"
+	"crypto-monitor/tools"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/joho/godotenv"
 )
 
@@ -33,7 +37,7 @@ func main() {
 		log.Fatalf("配置文件没有网络列表:")
 	}
 	// 默认总超时设定为30秒
-	ctxAll, cancelAll := context.WithTimeout(context.Background(), 50*time.Second)
+	ctxAll, cancelAll := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelAll()
 	runtimes, failed, err := engine.InitNetworks(ctxAll, cfg, cfg.App.Timeout)
 
@@ -51,7 +55,7 @@ func main() {
 		fmt.Printf("   - %s (chain_id=%d, rpc=%s, native=%s)\n", name, rt.ChainID, rt.RPCUsed, rt.NativeSymbol)
 	}
 
-	// 监控任务
+	// 资产查询任务
 	for _, wl := range cfg.Watchlists {
 		// 读取地址文件
 		addresses, err := config.LoadAddressesFromTXT(wl.AddressGlob)
@@ -60,7 +64,49 @@ func main() {
 		}
 		// 打印地址数量和前 3 个地址
 		fmt.Printf("加载了 %d 个地址:\n", len(addresses))
-
+		// 按网络、资产归档的余额查询结果
+		results := make(map[string]map[string][]provider.TokenBalance)
+		for _, t := range wl.Assets {
+			if t.Token == multicall3.AssetTypeNative {
+				for _, runtime := range runtimes {
+					tokenBalances, err := runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
+						common.HexToAddress("0x0000000000000000000000000000000000000000"),
+						ctxAll, cfg.App.Timeout, addresses)
+					if err != nil {
+						log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, runtime.NativeSymbol, err)
+					}
+					if _, ok := results[runtime.Name]; !ok {
+						results[runtime.Name] = make(map[string][]provider.TokenBalance)
+					}
+					results[runtime.Name][runtime.NativeSymbol] = tokenBalances
+				}
+			}
+			tokenCfg := cfg.Tokens[t.Token]
+			for rpcName, value := range tokenCfg.PerNetwork {
+				runtime := runtimes[rpcName]
+				tokenBalances, err := runtime.MultiChecker.CheckToken(tokenCfg.Type, common.HexToAddress(value.Contract), ctxAll, cfg.App.Timeout, addresses)
+				if err != nil {
+					log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, t.Token, err)
+				}
+				if _, ok := results[runtime.Name]; !ok {
+					results[runtime.Name] = make(map[string][]provider.TokenBalance)
+				}
+				results[runtime.Name][t.Token] = tokenBalances
+			}
+		}
+		// 控制台打印
+		for network, assetMap := range results {
+			for token, balances := range assetMap {
+				for _, b := range balances {
+					fmt.Printf("✅ [%s] Address: %s | Balance: %s %s\n",
+						network,
+						tools.ShortAddress(b.Owner),
+						b.Balance.String(),
+						token,
+					)
+				}
+			}
+		}
 	}
 
 }

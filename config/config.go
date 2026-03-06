@@ -57,10 +57,6 @@ type Watchlist struct {
 
 // AssetRef watchlists.assets: 支持 native / token
 type AssetRef struct {
-	// 1) 原生资产：写 type: native
-	Type string `yaml:"type,omitempty"` // native
-
-	// 2) 引用 token：写 token: USDT
 	Token string `yaml:"token,omitempty"`
 }
 

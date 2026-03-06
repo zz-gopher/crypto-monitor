@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // FormatUnits 把最小单位按 decimals 格式化成“人类单位”。
@@ -52,4 +53,13 @@ func FetchSymbol(
 		return "", fmt.Errorf("获取代币名称失败: %w", err)
 	}
 	return symbol, nil
+}
+
+// ShortAddress 地址缩略：0xFbE4...1234
+func ShortAddress(addr common.Address) string {
+	s := addr.Hex()
+	if len(s) <= 10 {
+		return s
+	}
+	return s[:6] + "..." + s[len(s)-4:]
 }

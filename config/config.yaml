@@ -73,6 +73,6 @@ watchlists:
     address_glob: "./data/addresses/*.txt"                  # 用哪个地址来源 支持globe
 
     assets:
-      - type: native
+      - token: native
       - token: USDT
       - token: USDC

@@ -14,9 +14,6 @@ import (
 )
 
 // AddressItem 代表一个地址
-type AddressItem struct {
-	Address common.Address
-}
 
 // LoadCfg Load 从指定路径读取 config.yaml 并解析为 Root
 func LoadCfg(path string) (*Root, error) {
@@ -47,7 +44,7 @@ func LoadCfg(path string) (*Root, error) {
 }
 
 // LoadAddressesFromTXT 读取文件并返回去重后的地址列表
-func LoadAddressesFromTXT(pathOrGlob string) ([]AddressItem, error) {
+func LoadAddressesFromTXT(pathOrGlob string) ([]common.Address, error) {
 	files, err := resolveFiles(pathOrGlob)
 	if err != nil {
 		return nil, err
@@ -55,7 +52,7 @@ func LoadAddressesFromTXT(pathOrGlob string) ([]AddressItem, error) {
 
 	// 去重 map
 	seen := make(map[common.Address]struct{})
-	var addresses []AddressItem
+	var addresses []common.Address
 
 	// 遍历文件，读取每个地址
 	for _, file := range files {
@@ -88,7 +85,7 @@ func resolveFiles(path string) ([]string, error) {
 }
 
 // loadOneTXTFile 逐行读取每个 txt 文件
-func loadOneTXTFile(filePath string, seen map[common.Address]struct{}) ([]AddressItem, error) {
+func loadOneTXTFile(filePath string, seen map[common.Address]struct{}) ([]common.Address, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", filePath, err)
@@ -96,7 +93,7 @@ func loadOneTXTFile(filePath string, seen map[common.Address]struct{}) ([]Addres
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
-	var items []AddressItem
+	var items []common.Address
 
 	// 逐行读取文件
 	for scanner.Scan() {
@@ -118,7 +115,7 @@ func loadOneTXTFile(filePath string, seen map[common.Address]struct{}) ([]Addres
 		seen[addr] = struct{}{} // 添加到 seen
 
 		// 加入地址列表
-		items = append(items, AddressItem{Address: addr})
+		items = append(items, addr)
 	}
 
 	if err := scanner.Err(); err != nil {
