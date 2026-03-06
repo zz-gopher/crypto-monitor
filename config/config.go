@@ -35,6 +35,7 @@ type NetworkItem struct {
 	ChainID      int      `yaml:"chain_id"`
 	RPC          []string `yaml:"rpc"`
 	NativeSymbol string   `yaml:"native_symbol"`
+	BatchSize    int      `yaml:"batch_size"`
 }
 
 // TokenDef tokens: { USDT: {...}, ... }

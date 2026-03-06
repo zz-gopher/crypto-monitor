@@ -63,3 +63,23 @@ func ShortAddress(addr common.Address) string {
 	}
 	return s[:6] + "..." + s[len(s)-4:]
 }
+
+// SplitAddresses 数组切片
+func SplitAddresses(addresses []common.Address, batchSize int) [][]common.Address {
+	if batchSize <= 0 {
+		batchSize = len(addresses)
+	}
+	if len(addresses) == 0 {
+		return nil
+	}
+
+	var batches [][]common.Address
+	for i := 0; i < len(addresses); i += batchSize {
+		end := i + batchSize
+		if end > len(addresses) {
+			end = len(addresses)
+		}
+		batches = append(batches, addresses[i:end])
+	}
+	return batches
+}

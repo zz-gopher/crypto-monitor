@@ -6,7 +6,7 @@ app:
   timeout: 8s
 
   # 并发：同时跑多少个请求任务（太大容易打爆 RPC / 太小速度慢）
-  concurrency: 64
+  concurrency: 8
 
   # 限流：全局每秒最多发多少个 RPC（保护你的 RPC key 和节点）
   rate_limit:
@@ -50,8 +50,9 @@ output:
 
 # ====== 网络（RPC 节点）======
 networks:
-  ethereum-mainnet: { chain_id: 1, rpc: ["${ETH_RPC_URL}"], native_symbol: ETH }
-  arbitrum-one:     { chain_id: 42161, rpc: ["${ARB_RPC_URL}"], native_symbol: ETH }
+  # batch_size:一次性rpc调用最高可容纳多少个地址，超过指定的数字就进行分批处理
+  ethereum-mainnet: { chain_id: 1, rpc: ["${ETH_RPC_URL}"], native_symbol: ETH, batch_size: 500}
+  arbitrum-one:     { chain_id: 42161, rpc: ["${ARB_RPC_URL}"], native_symbol: ETH,  batch_size: 400 }
 
 tokens:
   USDT:

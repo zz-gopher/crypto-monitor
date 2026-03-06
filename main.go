@@ -67,38 +67,57 @@ func main() {
 		// 按网络、资产归档的余额查询结果
 		results := make(map[string]map[string][]provider.TokenBalance)
 		for _, t := range wl.Assets {
-			if t.Token == multicall3.AssetTypeNative {
-				for _, runtime := range runtimes {
-					tokenBalances, err := runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
-						common.HexToAddress("0x0000000000000000000000000000000000000000"),
-						ctxAll, cfg.App.Timeout, addresses)
-					if err != nil {
-						log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, runtime.NativeSymbol, err)
+			for _, network := range wl.Networks {
+				runtime := runtimes[network]
+				if runtime == nil {
+					fmt.Printf("⚠️ 初始化%s网络失败,跳过: \n", network)
+					continue
+				}
+				batches := tools.SplitAddresses(addresses, cfg.Networks[runtime.Name].BatchSize)
+				// 地址切片
+				if t.Token == multicall3.AssetTypeNative {
+					for _, batch := range batches {
+						tokenBalances, err := runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
+							common.HexToAddress("0x0000000000000000000000000000000000000000"),
+							ctxAll, cfg.App.Timeout, batch)
+						if err != nil {
+							log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, runtime.NativeSymbol, err)
+						}
+						if _, ok := results[runtime.Name]; !ok {
+							results[runtime.Name] = make(map[string][]provider.TokenBalance)
+						}
+
+						results[runtime.Name][runtime.NativeSymbol] = append(results[runtime.Name][runtime.NativeSymbol], tokenBalances...)
 					}
-					if _, ok := results[runtime.Name]; !ok {
-						results[runtime.Name] = make(map[string][]provider.TokenBalance)
+				} else {
+					tokenCfg, ok := cfg.Tokens[t.Token]
+					if !ok {
+						fmt.Printf("⚠️ 未找到代币 %s 的配置，跳过\n", t.Token)
+						continue
 					}
-					results[runtime.Name][runtime.NativeSymbol] = tokenBalances
+					onNetwork, ok := tokenCfg.PerNetwork[network]
+					if !ok {
+						fmt.Printf("⚠️ 代币 %s 未配置网络 %s，跳过\n", t.Token, network)
+						continue
+					}
+					for _, batch := range batches {
+						tokenBalances, err := runtime.MultiChecker.CheckToken(tokenCfg.Type, common.HexToAddress(onNetwork.Contract), ctxAll, cfg.App.Timeout, batch)
+						if err != nil {
+							log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, t.Token, err)
+						}
+						if _, ok := results[runtime.Name]; !ok {
+							results[runtime.Name] = make(map[string][]provider.TokenBalance)
+						}
+						results[runtime.Name][t.Token] = append(results[runtime.Name][t.Token], tokenBalances...)
+					}
 				}
-			}
-			tokenCfg := cfg.Tokens[t.Token]
-			for rpcName, value := range tokenCfg.PerNetwork {
-				runtime := runtimes[rpcName]
-				tokenBalances, err := runtime.MultiChecker.CheckToken(tokenCfg.Type, common.HexToAddress(value.Contract), ctxAll, cfg.App.Timeout, addresses)
-				if err != nil {
-					log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, t.Token, err)
-				}
-				if _, ok := results[runtime.Name]; !ok {
-					results[runtime.Name] = make(map[string][]provider.TokenBalance)
-				}
-				results[runtime.Name][t.Token] = tokenBalances
 			}
 		}
 		// 控制台打印
 		for network, assetMap := range results {
 			for token, balances := range assetMap {
 				for _, b := range balances {
-					fmt.Printf("✅ [%s] Address: %s | Balance: %s %s\n",
+					fmt.Printf("✅ [%s] 地址: %s | 余额: %s %s\n",
 						network,
 						tools.ShortAddress(b.Owner),
 						b.Balance.String(),
@@ -108,5 +127,4 @@ func main() {
 			}
 		}
 	}
-
 }
