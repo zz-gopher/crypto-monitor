@@ -16,6 +16,7 @@ type AppConfig struct {
 	PollInterval  time.Duration `yaml:"poll_interval"`
 	Timeout       time.Duration `yaml:"timeout"`
 	Concurrency   int           `yaml:"concurrency"`
+	BatchSize     int           `yaml:"batch_size"`
 	RateLimit     RateLimit     `yaml:"rate_limit"`
 	MetadataCache MetadataCache `yaml:"metadata_cache"`
 }
@@ -35,7 +36,6 @@ type NetworkItem struct {
 	ChainID      int      `yaml:"chain_id"`
 	RPC          []string `yaml:"rpc"`
 	NativeSymbol string   `yaml:"native_symbol"`
-	BatchSize    int      `yaml:"batch_size"`
 }
 
 // TokenDef tokens: { USDT: {...}, ... }

@@ -11,11 +11,20 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/joho/godotenv"
 )
+
+// QueryResult 用于在 Channel 中传递结果
+type QueryResult struct {
+	Network  string
+	Token    string
+	Balances []provider.TokenBalance
+	Error    error
+}
 
 func main() {
 	// go run . --config ./config.yaml
@@ -36,6 +45,7 @@ func main() {
 	if len(cfg.Networks) == 0 {
 		log.Fatalf("配置文件没有网络列表:")
 	}
+	startTime := time.Now()
 	// 默认总超时设定为30秒
 	ctxAll, cancelAll := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelAll()
@@ -64,67 +74,91 @@ func main() {
 		}
 		// 打印地址数量和前 3 个地址
 		fmt.Printf("加载了 %d 个地址:\n", len(addresses))
-		// 按网络、资产归档的余额查询结果
-		results := make(map[string]map[string][]provider.TokenBalance)
-		for _, t := range wl.Assets {
+		// 地址进行切片
+		batches := tools.SplitAddresses(addresses, cfg.App.BatchSize)
+		// 创建用于接收结果的 Channel
+		resultsChan := make(chan QueryResult, len(wl.Networks)*len(wl.Assets)*len(batches))
+		var wg sync.WaitGroup
+		for _, ass := range wl.Assets {
 			for _, network := range wl.Networks {
-				runtime := runtimes[network]
-				if runtime == nil {
-					fmt.Printf("⚠️ 初始化%s网络失败,跳过: \n", network)
-					continue
-				}
-				batches := tools.SplitAddresses(addresses, cfg.Networks[runtime.Name].BatchSize)
-				// 地址切片
-				if t.Token == multicall3.AssetTypeNative {
-					for _, batch := range batches {
-						tokenBalances, err := runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
-							common.HexToAddress("0x0000000000000000000000000000000000000000"),
-							ctxAll, cfg.App.Timeout, batch)
-						if err != nil {
-							log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, runtime.NativeSymbol, err)
+				wg.Add(1)
+				// 开启协程
+				go func(n string, asset config.AssetRef) {
+					defer wg.Done()
+					runtime, ok := runtimes[n]
+					if !ok || runtime == nil {
+						fmt.Printf("⚠️ 初始化 %s 网络失败或不存在,跳过\n", n)
+						return
+					}
+					if asset.Token == multicall3.AssetTypeNative {
+						// 每一个批次理论上会走一次RPC,减缓了RPC的压力
+						for _, batch := range batches {
+							tokenBalances, err := runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
+								common.Address{}, // 自动等价于 0x000...
+								ctxAll, cfg.App.Timeout, batch)
+							resultsChan <- QueryResult{Network: n, Token: runtime.NativeSymbol, Balances: tokenBalances, Error: err}
 						}
-						if _, ok := results[runtime.Name]; !ok {
-							results[runtime.Name] = make(map[string][]provider.TokenBalance)
-						}
+						return
+					}
 
-						results[runtime.Name][runtime.NativeSymbol] = append(results[runtime.Name][runtime.NativeSymbol], tokenBalances...)
-					}
-				} else {
-					tokenCfg, ok := cfg.Tokens[t.Token]
+					// 处理其他类型的 Token
+					tokenCfg, ok := cfg.Tokens[asset.Token]
 					if !ok {
-						fmt.Printf("⚠️ 未找到代币 %s 的配置，跳过\n", t.Token)
-						continue
+						fmt.Printf("⚠️ 未找到代币 %s 的配置\n", asset.Token)
+						return
 					}
-					onNetwork, ok := tokenCfg.PerNetwork[network]
+					onNetwork, ok := tokenCfg.PerNetwork[n]
 					if !ok {
-						fmt.Printf("⚠️ 代币 %s 未配置网络 %s，跳过\n", t.Token, network)
-						continue
+						// 某些网络可能没有该代币合约，正常跳过，不需要报错
+						return
 					}
 					for _, batch := range batches {
-						tokenBalances, err := runtime.MultiChecker.CheckToken(tokenCfg.Type, common.HexToAddress(onNetwork.Contract), ctxAll, cfg.App.Timeout, batch)
-						if err != nil {
-							log.Fatalf("网络%smulticall合约读取%s余额失败: %v", runtime.Name, t.Token, err)
-						}
-						if _, ok := results[runtime.Name]; !ok {
-							results[runtime.Name] = make(map[string][]provider.TokenBalance)
-						}
-						results[runtime.Name][t.Token] = append(results[runtime.Name][t.Token], tokenBalances...)
+						tokenBalances, err := runtime.MultiChecker.CheckToken(
+							tokenCfg.Type,
+							common.HexToAddress(onNetwork.Contract),
+							ctxAll, cfg.App.Timeout, batch)
+						resultsChan <- QueryResult{Network: n, Token: asset.Token, Balances: tokenBalances, Error: err}
 					}
-				}
+				}(network, ass)
 			}
 		}
-		// 控制台打印
-		for network, assetMap := range results {
-			for token, balances := range assetMap {
-				for _, b := range balances {
+		// 另启一个线程等待所有任务完成，然后关闭channel
+		go func() {
+			wg.Wait()
+			close(resultsChan)
+		}()
+		// 主协程统一从 Channel 收集结果并组装 Map
+		results := make(map[string]map[string][]provider.TokenBalance)
+		var successCount int
+		for res := range resultsChan {
+			if res.Error != nil {
+				fmt.Printf("❌ 网络 %s 读取 %s 失败: %v\n", res.Network, res.Token, res.Error)
+				continue
+			}
+
+			// 懒加载初始化 Map
+			if results[res.Network] == nil {
+				results[res.Network] = make(map[string][]provider.TokenBalance)
+			}
+			// 追加数据
+			results[res.Network][res.Token] = append(results[res.Network][res.Token], res.Balances...)
+
+			// 边接收边统计，节省一次后续的遍历
+			for _, b := range res.Balances {
+				if b.Success {
 					fmt.Printf("✅ [%s] 地址: %s | 余额: %s %s\n",
-						network,
-						tools.ShortAddress(b.Owner),
-						b.Balance.String(),
-						token,
-					)
+						res.Network, tools.ShortAddress(b.Owner), b.Balance.String(), res.Token)
+					successCount++
 				}
 			}
 		}
+		totalExpected := len(addresses) * len(wl.Networks) * len(wl.Assets)
+		fmt.Printf("\n--------------------------------------------------\n")
+		fmt.Printf("📊 Summary Report\n")
+		fmt.Printf("--------------------------------------------------\n")
+		fmt.Printf("✅ Success Rate : %d / %d\n", successCount, totalExpected)
+		fmt.Printf("🎉 All tasks completed! Time: %v\n", time.Since(startTime))
+		fmt.Printf("--------------------------------------------------\n")
 	}
+
 }
