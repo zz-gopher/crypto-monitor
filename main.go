@@ -6,6 +6,7 @@ import (
 	"crypto-monitor/internal/engine"
 	"crypto-monitor/internal/provider"
 	"crypto-monitor/internal/provider/eth/contracts/multicall3"
+	"crypto-monitor/pkg/retry"
 	"crypto-monitor/tools"
 	"flag"
 	"fmt"
@@ -46,8 +47,8 @@ func main() {
 		log.Fatalf("配置文件没有网络列表:")
 	}
 	startTime := time.Now()
-	// 默认总超时设定为30秒
-	ctxAll, cancelAll := context.WithTimeout(context.Background(), 30*time.Second)
+	// 默认总超时设定
+	ctxAll, cancelAll := context.WithTimeout(context.Background(), cfg.App.GlobalTimeout)
 	defer cancelAll()
 	runtimes, failed, err := engine.InitNetworks(ctxAll, cfg, cfg.App.Timeout)
 
@@ -65,7 +66,7 @@ func main() {
 		fmt.Printf("   - %s (chain_id=%d, rpc=%s, native=%s)\n", name, rt.ChainID, rt.RPCUsed, rt.NativeSymbol)
 	}
 
-	// 资产查询任务
+	// 根据配置文件，查询资产任务
 	for _, wl := range cfg.Watchlists {
 		// 读取地址文件
 		addresses, err := config.LoadAddressesFromTXT(wl.AddressGlob)
@@ -78,7 +79,8 @@ func main() {
 		batches := tools.SplitAddresses(addresses, cfg.App.BatchSize)
 		// 创建用于接收结果的 Channel
 		resultsChan := make(chan QueryResult, len(wl.Networks)*len(wl.Assets)*len(batches))
-		sem := make(chan struct{}, cfg.App.Concurrency) // 令牌桶
+		// 用于限流的令牌桶
+		sem := make(chan struct{}, cfg.App.Concurrency)
 		var wg sync.WaitGroup
 		for _, ass := range wl.Assets {
 			for _, network := range wl.Networks {
@@ -96,10 +98,16 @@ func main() {
 					if asset.Token == multicall3.AssetTypeNative {
 						// 每一个批次理论上会走一次RPC,减缓了RPC的压力
 						for _, batch := range batches {
-							tokenBalances, err := runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
-								common.Address{}, // 自动等价于 0x000...
-								ctxAll, cfg.App.Timeout, batch)
-							resultsChan <- QueryResult{Network: n, Token: runtime.NativeSymbol, Balances: tokenBalances, Error: err}
+							var tokenBalances []provider.TokenBalance
+							// RPC进行指数级退避算法重试
+							retryErr := retry.Do(ctxAll, cfg.App.Retry, func() error {
+								var err error
+								tokenBalances, err = runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
+									common.Address{}, // 自动等价于 0x000...
+									ctxAll, cfg.App.Timeout, batch)
+								return err
+							})
+							resultsChan <- QueryResult{Network: n, Token: runtime.NativeSymbol, Balances: tokenBalances, Error: retryErr}
 						}
 						return
 					}
@@ -116,11 +124,16 @@ func main() {
 						return
 					}
 					for _, batch := range batches {
-						tokenBalances, err := runtime.MultiChecker.CheckToken(
-							tokenCfg.Type,
-							common.HexToAddress(onNetwork.Contract),
-							ctxAll, cfg.App.Timeout, batch)
-						resultsChan <- QueryResult{Network: n, Token: asset.Token, Balances: tokenBalances, Error: err}
+						var tokenBalances []provider.TokenBalance
+						retryError := retry.Do(ctxAll, cfg.App.Retry, func() error {
+							var err error
+							tokenBalances, err = runtime.MultiChecker.CheckToken(
+								tokenCfg.Type,
+								common.HexToAddress(onNetwork.Contract),
+								ctxAll, cfg.App.Timeout, batch)
+							return err
+						})
+						resultsChan <- QueryResult{Network: n, Token: asset.Token, Balances: tokenBalances, Error: retryError}
 					}
 				}(network, ass)
 			}

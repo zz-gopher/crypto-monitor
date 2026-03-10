@@ -2,12 +2,22 @@ app:
   # 轮询：每隔多久跑一轮“全量查询”（network × addresses × assets）
   poll_interval: 60s
 
+  retry:
+    # 单次RPC失败最大重试次数
+    max_retries: 3
+    base_delay: 2s
+    max_delay: 60s
+
+  # 整个脚本最多跑多少时间, 这里设定5分钟
+  global_timeout: 5m
+
   # 单次 RPC 请求的超时时间（不是整轮的超时）
   timeout: 8s
 
   # 并发：同时跑多少个请求任务（太大容易打爆 RPC / 太小速度慢）
   concurrency: 20
 
+  # 一次RPC包含的最大地址数量
   batch_size: 500
 
   # 限流：全局每秒最多发多少个 RPC（保护你的 RPC key 和节点）

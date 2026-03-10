@@ -14,11 +14,19 @@ type Root struct {
 // AppConfig app: {...}
 type AppConfig struct {
 	PollInterval  time.Duration `yaml:"poll_interval"`
+	GlobalTimeout time.Duration `yaml:"global_timeout"`
+	Retry         Retry         `yaml:"retry"`
 	Timeout       time.Duration `yaml:"timeout"`
 	Concurrency   int           `yaml:"concurrency"`
 	BatchSize     int           `yaml:"batch_size"`
 	RateLimit     RateLimit     `yaml:"rate_limit"`
 	MetadataCache MetadataCache `yaml:"metadata_cache"`
+}
+
+type Retry struct {
+	MaxRetries int           `yaml:"max_retries"`
+	BaseDelay  time.Duration `yaml:"base_delay"`
+	MaxDelay   time.Duration `yaml:"max_delay"`
 }
 
 type RateLimit struct {
