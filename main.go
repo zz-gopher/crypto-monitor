@@ -17,6 +17,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/joho/godotenv"
+	"golang.org/x/time/rate"
 )
 
 // QueryResult 用于在 Channel 中传递结果
@@ -66,6 +67,12 @@ func main() {
 		fmt.Printf("   - %s (chain_id=%d, rpc=%s, native=%s)\n", name, rt.ChainID, rt.RPCUsed, rt.NativeSymbol)
 	}
 
+	// 初始化全局令牌桶 (限制绝对速率 RPS，保护远端节点)
+	limiter := rate.NewLimiter(rate.Limit(cfg.App.RateLimit.RPS), cfg.App.RateLimit.Burst)
+
+	// 信号量 (Semaphore)：控制本地的最大并发协程数，防止内存溢出和句柄耗尽
+	sem := make(chan struct{}, cfg.App.Concurrency)
+
 	// 根据配置文件，查询资产任务
 	for _, wl := range cfg.Watchlists {
 		// 读取地址文件
@@ -79,17 +86,15 @@ func main() {
 		batches := tools.SplitAddresses(addresses, cfg.App.BatchSize)
 		// 创建用于接收结果的 Channel
 		resultsChan := make(chan QueryResult, len(wl.Networks)*len(wl.Assets)*len(batches))
-		// 用于限流的令牌桶
-		sem := make(chan struct{}, cfg.App.Concurrency)
 		var wg sync.WaitGroup
 		for _, ass := range wl.Assets {
 			for _, network := range wl.Networks {
 				wg.Add(1)
 				// 开启协程
-				sem <- struct{}{} // 拿令牌
+				sem <- struct{}{} // 获取信号
 				go func(n string, asset config.AssetRef) {
 					defer wg.Done()
-					defer func() { <-sem }() // 协程结束后归还令牌
+					defer func() { <-sem }() // 协程结束后释放信号
 					runtime, ok := runtimes[n]
 					if !ok || runtime == nil {
 						fmt.Printf("⚠️ 初始化 %s 网络失败或不存在,跳过\n", n)
@@ -99,12 +104,16 @@ func main() {
 						// 每一个批次理论上会走一次RPC,减缓了RPC的压力
 						for _, batch := range batches {
 							var tokenBalances []provider.TokenBalance
-							// RPC进行指数级退避算法重试
 							retryErr := retry.Do(ctxAll, cfg.App.Retry, func() error {
+								if err := limiter.Wait(ctxAll); err != nil {
+									return fmt.Errorf("令牌桶排队被打断或超时: %w", err)
+								}
+								// 拿到令牌
 								var err error
 								tokenBalances, err = runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
 									common.Address{}, // 自动等价于 0x000...
 									ctxAll, cfg.App.Timeout, batch)
+
 								return err
 							})
 							resultsChan <- QueryResult{Network: n, Token: runtime.NativeSymbol, Balances: tokenBalances, Error: retryErr}
@@ -126,6 +135,10 @@ func main() {
 					for _, batch := range batches {
 						var tokenBalances []provider.TokenBalance
 						retryError := retry.Do(ctxAll, cfg.App.Retry, func() error {
+							if err := limiter.Wait(ctxAll); err != nil {
+								return fmt.Errorf("令牌桶排队被打断或超时: %w", err)
+							}
+							// 拿到令牌
 							var err error
 							tokenBalances, err = runtime.MultiChecker.CheckToken(
 								tokenCfg.Type,
