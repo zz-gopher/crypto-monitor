@@ -78,13 +78,16 @@ func main() {
 		batches := tools.SplitAddresses(addresses, cfg.App.BatchSize)
 		// 创建用于接收结果的 Channel
 		resultsChan := make(chan QueryResult, len(wl.Networks)*len(wl.Assets)*len(batches))
+		sem := make(chan struct{}, cfg.App.Concurrency) // 令牌桶
 		var wg sync.WaitGroup
 		for _, ass := range wl.Assets {
 			for _, network := range wl.Networks {
 				wg.Add(1)
 				// 开启协程
+				sem <- struct{}{} // 拿令牌
 				go func(n string, asset config.AssetRef) {
 					defer wg.Done()
+					defer func() { <-sem }() // 协程结束后归还令牌
 					runtime, ok := runtimes[n]
 					if !ok || runtime == nil {
 						fmt.Printf("⚠️ 初始化 %s 网络失败或不存在,跳过\n", n)

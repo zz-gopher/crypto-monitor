@@ -6,7 +6,7 @@ app:
   timeout: 8s
 
   # 并发：同时跑多少个请求任务（太大容易打爆 RPC / 太小速度慢）
-  concurrency: 8
+  concurrency: 20
 
   batch_size: 500
 
