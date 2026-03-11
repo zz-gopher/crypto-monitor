@@ -35,8 +35,9 @@ type RateLimit struct {
 }
 
 type MetadataCache struct {
-	Dir string        `yaml:"dir"`
-	TTL time.Duration `yaml:"ttl"`
+	Dir      string        `yaml:"dir"`
+	CachedAt int64         `json:"cached_at"` // 时间戳
+	TTL      time.Duration `yaml:"ttl"`
 }
 
 // NetworkItem networks: { <name>: {...}, ... }
