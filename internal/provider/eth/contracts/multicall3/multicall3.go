@@ -287,10 +287,10 @@ func (m *MultiChecker) FetchTokenMeta(ctx context.Context, tokenAddr common.Addr
 	var decimals uint8
 
 	if results[0].Success && len(results[0].ReturnData) > 0 {
-		_ = parsedABI.UnpackIntoInterface(&name, "name", results[0].ReturnData)
+		name, _ = tools.DecodeSymbol(parsedABI, results[0].ReturnData)
 	}
 	if results[1].Success && len(results[1].ReturnData) > 0 {
-		_ = parsedABI.UnpackIntoInterface(&symbol, "symbol", results[1].ReturnData)
+		symbol, _ = tools.DecodeSymbol(parsedABI, results[1].ReturnData)
 	}
 	if results[2].Success && len(results[2].ReturnData) > 0 {
 		_ = parsedABI.UnpackIntoInterface(&decimals, "decimals", results[2].ReturnData)

@@ -5,8 +5,10 @@ import (
 	"crypto-monitor/internal/provider"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -82,4 +84,42 @@ func SplitAddresses(addresses []common.Address, batchSize int) [][]common.Addres
 		batches = append(batches, addresses[i:end])
 	}
 	return batches
+}
+
+// DecodeSymbol 解析 Symbol 的兼容函数
+func DecodeSymbol(erc20Abi *abi.ABI, returnData []byte) (string, error) {
+	// 检查数据是否为空（防空指针）
+	if len(returnData) == 0 {
+		return "UNKNOWN", nil
+	}
+
+	// 1. 尝试按标准 ERC20 (string) 解包
+	var outString []any
+	err := erc20Abi.UnpackIntoInterface(&outString, "symbol", returnData)
+	if err == nil && len(outString) > 0 {
+		return outString[0].(string), nil // 解包成功，直接返回！
+	}
+
+	// 2. 🚨 触发降级机制：如果 string 解包失败，尝试按 bytes32 解包！
+	// 因为 go-ethereum 的 ABI 解包强依赖你在 abi.JSON 里定义的类型，
+	// 我们不能直接用 ERC20 的 ABI 解了，必须自己硬解这 32 个字节！
+
+	// 只要返回值长度大于等于 32，我们就强行把它当 bytes32 读出来
+	if len(returnData) >= 32 {
+		var bytes32Symbol [32]byte
+		copy(bytes32Symbol[:], returnData[:32])
+
+		// 把 [32]byte 转成字符串，并剔除末尾多余的空字符 (\x00)
+		// 比如 "MKR\x00\x00\x00..." -> "MKR"
+		cleanedSymbol := strings.TrimRight(string(bytes32Symbol[:]), "\x00")
+
+		// 很多时候不仅是 null 字符，还可能有不可见的控制字符，安全起见可以用 TrimSpace
+		cleanedSymbol = strings.TrimSpace(cleanedSymbol)
+
+		if cleanedSymbol != "" {
+			return cleanedSymbol, nil
+		}
+	}
+
+	return "UNKNOWN", fmt.Errorf("无法解析 symbol, 既不是 string 也不是 bytes32")
 }
