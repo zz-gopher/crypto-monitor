@@ -29,33 +29,12 @@ app:
 
 # ====== 输出结构 ======
 output:
-  # ===== 测试阶段：只看控制台 =====
-  console:
-    enabled: true
-    format: table         # table / json
-    decimals: 6
-    show_wei: false
-
   # ===== 落盘阶段：输出 CSV =====
   csv:
-    enabled: false        # ✅ 测试时先关掉；上线/跑批时打开
-    path: "./output/rich_wallet.csv"
+    enabled: true        # ✅ 测试时先关掉；上线/跑批时打开
+    dir: "./output"      # 指定文件夹位置
     mode: append          # append(追加) / overwrite(覆盖)
     flush_every: 200      # 写入多少行后 flush 一次（防止缓冲丢数据）
-
-    # CSV 列定义（你可以按这个顺序输出）
-    columns:
-      - timestamp
-      - network
-      - chain_id
-      - wallet_address
-      - wallet_label
-      - asset_type
-      - contract
-      - symbol
-      - decimals
-      - balance_raw          # 原始 big.Int（Wei 或 token 最小单位）
-      - balance_formatted    # 按 decimals 换算后的展示值
 
 # ====== 网络（RPC 节点）======
 networks:

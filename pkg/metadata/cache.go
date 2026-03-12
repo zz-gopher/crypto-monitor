@@ -51,7 +51,7 @@ func (c *Cache) LoadFromDisk() {
 			count++
 		}
 	}
-	fmt.Printf("🚀 成功从磁盘预热加载了 %d 个 Token 的元数据", count)
+	fmt.Printf("🚀 成功从磁盘预热加载了 %d 个 Token 的元数据 \n", count)
 }
 
 // GetOrFetch 核心拦截器

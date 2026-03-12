@@ -16,6 +16,9 @@ import (
 func InitNetworks(ctx context.Context, cfg *config.Root, timeout time.Duration) (map[string]*NetworkRuntime, map[string]error, error) {
 	runtimes := make(map[string]*NetworkRuntime, len(cfg.Networks))
 	failed := make(map[string]error)
+	// 初始化token缓存, 并预热
+	globalMetaCache := metadata.NewCache(cfg.App.MetadataCache.Dir, cfg.App.MetadataCache.TTL)
+	globalMetaCache.LoadFromDisk()
 	for name, n := range cfg.Networks {
 		if len(n.RPC) == 0 {
 			failed[name] = fmt.Errorf("rpc 列表为空")
@@ -47,9 +50,6 @@ func InitNetworks(ctx context.Context, cfg *config.Root, timeout time.Duration) 
 			failed[name] = fmt.Errorf("网络 %s: chain_id 不匹配, cfg=%d node=%d", name, n.ChainID, client.ChainID.Int64())
 			continue
 		}
-		// 初始化token缓存,并预热
-		globalMetaCache := metadata.NewCache(cfg.App.MetadataCache.Dir, cfg.App.MetadataCache.TTL)
-		globalMetaCache.LoadFromDisk()
 		// 绑定multicall3合约
 		multiChecker, err := multicall3.NewMultiChecker(client.Client, n.ChainID, globalMetaCache)
 		if err != nil {

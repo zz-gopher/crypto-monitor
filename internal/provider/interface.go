@@ -17,7 +17,6 @@ type TokenBalance struct {
 	Decimals     uint8          // 代币精度
 	RawBalance   *big.Int       // 原始余额
 	Owner        common.Address // 代币所有者
-	Network      string         // 网络
 	Success      bool           // 是否查询成功
 }
 

@@ -82,9 +82,8 @@ type Console struct {
 }
 
 type CSV struct {
-	Enabled    bool     `yaml:"enabled"`
-	Path       string   `yaml:"path"`
-	Mode       string   `yaml:"mode"`
-	FlushEvery int      `yaml:"flush_every"`
-	Columns    []string `yaml:"columns"`
+	Enabled    bool   `yaml:"enabled"`
+	Dir        string `yaml:"dir"`
+	Mode       string `yaml:"mode"`
+	FlushEvery int    `yaml:"flush_every"`
 }

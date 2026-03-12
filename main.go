@@ -12,11 +12,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/joho/godotenv"
+	"github.com/schollz/progressbar/v3"
 	"golang.org/x/time/rate"
 )
 
@@ -73,20 +75,40 @@ func main() {
 	// 信号量 (Semaphore)：控制本地的最大并发协程数，防止内存溢出和句柄耗尽
 	sem := make(chan struct{}, cfg.App.Concurrency)
 
+	var globalSuccessCount int
+	var globalTotalExpected int
+
 	// 根据配置文件，查询资产任务
 	for _, wl := range cfg.Watchlists {
+
+		// 为当前 Watchlist 准备独立的 CSV
+		wlConfig := cfg.Output.CSV
+		wlPath := filepath.Join(wlConfig.Dir, fmt.Sprintf("%s_results.csv", wl.Name))
+		wlExporter, err := tools.NewCSVExporter(wlConfig, wlPath)
+		if err != nil {
+			fmt.Printf("❌ 无法为 %s 创建 Exporter: %v\n", wl.Name, err)
+			continue
+		}
 		// 读取地址文件
 		addresses, err := config.LoadAddressesFromTXT(wl.AddressGlob)
 		if err != nil {
 			log.Fatalf("读取地址文件失败: %v", err)
 		}
-		// 打印地址数量和前 3 个地址
-		fmt.Printf("加载了 %d 个地址:\n", len(addresses))
 		// 地址进行切片
 		batches := tools.SplitAddresses(addresses, cfg.App.BatchSize)
+
+		// 计算当前 Watchlist 的预期总量并累加到全局
+		currentWlExpected := len(addresses) * len(wl.Networks) * len(wl.Assets)
+		globalTotalExpected += currentWlExpected
+
+		fmt.Printf("\n🚀 正在处理任务 [%s] | 地址总数: %d | 预期结果: %d\n", wl.Name, len(addresses), currentWlExpected)
+
 		// 创建用于接收结果的 Channel
 		resultsChan := make(chan QueryResult, len(wl.Networks)*len(wl.Assets)*len(batches))
+
 		var wg sync.WaitGroup
+
+		// ------------开启并发查询------------
 		for _, ass := range wl.Assets {
 			for _, network := range wl.Networks {
 				wg.Add(1)
@@ -156,12 +178,19 @@ func main() {
 			wg.Wait()
 			close(resultsChan)
 		}()
+
 		// 主协程统一从 Channel 收集结果并组装 Map
+		var wlSuccessCount int
 		results := make(map[string]map[string][]provider.TokenBalance)
-		var successCount int
+		// 进度条初始化，只在(写CSV)时用它
+		var bar *progressbar.ProgressBar
+		if cfg.Output.CSV.Enabled {
+			// Default 参数：总量，前缀提示词
+			bar = progressbar.Default(int64(currentWlExpected), fmt.Sprintf("🚀 [%s] 扫描中", wl.Name))
+		}
 		for res := range resultsChan {
 			if res.Error != nil {
-				fmt.Printf("❌ 网络 %s 读取 %s 失败: %v\n", res.Network, res.Token, res.Error)
+				fmt.Printf("❌ [%s] 读取 %s 失败: %v\n", res.Network, res.Token, res.Error)
 				continue
 			}
 
@@ -174,20 +203,55 @@ func main() {
 
 			// 边接收边统计，节省一次后续的遍历
 			for _, b := range res.Balances {
+				row := []string{
+					res.Network,
+					b.TokenAddress.Hex(),
+					b.Owner.Hex(),
+					b.Symbol,
+					b.Balance.String(),
+					fmt.Sprintf("%d", b.Decimals),
+					fmt.Sprintf("%t", b.Success),
+				}
+				if cfg.Output.CSV.Enabled {
+					// 写入CSV 并展示控制台
+					_ = wlExporter.WriteRow(row)
+					// 进度条 +1
+					if bar != nil {
+						_ = bar.Add(1)
+					}
+				} else {
+					// 不写文件，全量打印控制台
+					if b.Success {
+						fmt.Printf("✅ [%s] 地址: %s | 余额: %s %s\n",
+							res.Network, tools.ShortAddress(b.Owner), b.Balance.String(), res.Token)
+					} else {
+						// 如果失败了，控制台给个提示
+						fmt.Printf("⚠️  [%s] 地址: %s 代币:%s 查询失败\n", res.Network, res.Token, tools.ShortAddress(b.Owner))
+					}
+				}
 				if b.Success {
-					fmt.Printf("✅ [%s] 地址: %s | 余额: %s %s\n",
-						res.Network, tools.ShortAddress(b.Owner), b.Balance.String(), res.Token)
-					successCount++
+					wlSuccessCount++
 				}
 			}
 		}
-		totalExpected := len(addresses) * len(wl.Networks) * len(wl.Assets)
-		fmt.Printf("\n--------------------------------------------------\n")
-		fmt.Printf("📊 Summary Report\n")
-		fmt.Printf("--------------------------------------------------\n")
-		fmt.Printf("✅ Success Rate : %d / %d\n", successCount, totalExpected)
-		fmt.Printf("🎉 All tasks completed! Time: %v\n", time.Since(startTime))
-		fmt.Printf("--------------------------------------------------\n")
-	}
+		// 关闭当前 CSV 文件句柄（确保 Flush 到磁盘）
+		wlExporter.Close()
 
+		// 累加到全局统计
+		globalSuccessCount += wlSuccessCount
+
+		fmt.Printf("✅ 任务 [%s] 完成! 成功率: %d/%d\n", wl.Name, wlSuccessCount, currentWlExpected)
+	}
+	fmt.Printf("\n==================================================\n")
+	fmt.Printf("📊 ALL TASKS COMPLETED (全部查询完毕)\n")
+	fmt.Printf("==================================================\n")
+	fmt.Printf("⏱️ 总耗时     : %s\n", time.Since(startTime))
+	fmt.Printf("📈 总成功率   : %d / %d (%.2f%%)\n",
+		globalSuccessCount,
+		globalTotalExpected,
+		float64(globalSuccessCount)/float64(globalTotalExpected)*100)
+	if cfg.Output.CSV.Enabled {
+		fmt.Printf("📂 数据报告已分别保存至 ./output/ 目录下\n")
+	}
+	fmt.Printf("==================================================\n")
 }
