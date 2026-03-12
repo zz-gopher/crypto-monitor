@@ -55,8 +55,8 @@ func (c *Cache) LoadFromDisk() {
 }
 
 // GetOrFetch 核心拦截器
-func (c *Cache) GetOrFetch(chainID, address string, fetchRPC func() (*TokenMetadata, error)) (*TokenMetadata, error) {
-	key := fmt.Sprintf("%s_%s", chainID, address)
+func (c *Cache) GetOrFetch(chainID string, tokenAddress string, fetchRPC func() (*TokenMetadata, error)) (*TokenMetadata, error) {
+	key := fmt.Sprintf("%s_%s", chainID, tokenAddress)
 	// 第一层去查内存
 	if val, ok := c.memCache.Load(key); ok {
 		meta := val.(*TokenMetadata)
@@ -74,7 +74,6 @@ func (c *Cache) GetOrFetch(chainID, address string, fetchRPC func() (*TokenMetad
 		}
 		// 补全信息
 		newMeta.ChainID = chainID
-		newMeta.Address = address
 		newMeta.CachedAt = time.Now().Unix()
 
 		// 存入内存

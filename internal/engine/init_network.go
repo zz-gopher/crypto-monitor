@@ -5,6 +5,7 @@ import (
 	"crypto-monitor/config"
 	"crypto-monitor/internal/provider/eth"
 	"crypto-monitor/internal/provider/eth/contracts/multicall3"
+	"crypto-monitor/pkg/metadata"
 	"errors"
 	"fmt"
 	"os"
@@ -46,8 +47,11 @@ func InitNetworks(ctx context.Context, cfg *config.Root, timeout time.Duration) 
 			failed[name] = fmt.Errorf("网络 %s: chain_id 不匹配, cfg=%d node=%d", name, n.ChainID, client.ChainID.Int64())
 			continue
 		}
+		// 初始化token缓存,并预热
+		globalMetaCache := metadata.NewCache(cfg.App.MetadataCache.Dir, cfg.App.MetadataCache.TTL)
+		globalMetaCache.LoadFromDisk()
 		// 绑定multicall3合约
-		multiChecker, err := multicall3.NewMultiChecker(client.Client)
+		multiChecker, err := multicall3.NewMultiChecker(client.Client, n.ChainID, globalMetaCache)
 		if err != nil {
 			client.Close()
 			failed[name] = fmt.Errorf("网络 %s: 绑定 multicall 失败: %w", name, err)

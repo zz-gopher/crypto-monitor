@@ -13,7 +13,6 @@ type Root struct {
 
 // AppConfig app: {...}
 type AppConfig struct {
-	PollInterval  time.Duration `yaml:"poll_interval"`
 	GlobalTimeout time.Duration `yaml:"global_timeout"`
 	Retry         Retry         `yaml:"retry"`
 	Timeout       time.Duration `yaml:"timeout"`

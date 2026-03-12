@@ -5,6 +5,7 @@ import (
 	"crypto-monitor/internal/provider"
 	"crypto-monitor/internal/provider/eth/contracts/erc20"
 	"crypto-monitor/internal/provider/eth/contracts/erc721"
+	"crypto-monitor/pkg/metadata"
 	"crypto-monitor/tools"
 	"errors"
 	"fmt"
@@ -29,7 +30,8 @@ const ContractAddress = "0xcA11bde05977b3631167028862bE2a173976CA11"
 type MultiChecker struct {
 	Client    *ethclient.Client
 	Multicall *Multicall3
-	MultiAddr common.Address
+	ChainID   int             // 当前实例对应的链 ID
+	MetaCache *metadata.Cache // 缓存
 }
 type callItem struct {
 	TokenAddr common.Address
@@ -40,7 +42,7 @@ type callItem struct {
 }
 
 // NewMultiChecker 绑定multicall3合约
-func NewMultiChecker(client *ethclient.Client) (*MultiChecker, error) {
+func NewMultiChecker(client *ethclient.Client, chainID int, cache *metadata.Cache) (*MultiChecker, error) {
 	multicallAddr := common.HexToAddress(ContractAddress)
 
 	// 绑定multicall合约
@@ -51,7 +53,8 @@ func NewMultiChecker(client *ethclient.Client) (*MultiChecker, error) {
 	return &MultiChecker{
 		Client:    client,
 		Multicall: multi,
-		MultiAddr: multicallAddr,
+		ChainID:   chainID,
+		MetaCache: cache,
 	}, nil
 }
 
@@ -92,40 +95,29 @@ func (m *MultiChecker) CheckToken(
 				AbiName:   "getEthBalance",
 			})
 		}
-	case AssetTypeERC721:
-		decimals = 0
-		erc721Checker, err := erc721.NewChecker(tokenAddr, m.Client)
+	case AssetTypeERC721, AssetTypeERC20:
+		// 走二级缓存 + 防击穿系统 去查询代币信息
+		meta, err := m.MetaCache.GetOrFetch(fmt.Sprintf("%d", m.ChainID), tokenAddr.Hex(), func() (*metadata.TokenMetadata, error) {
+			return m.FetchTokenMeta(ctx, tokenAddr, timeout)
+		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("获取代币元数据失败: %w", err)
 		}
-		symbol, err = tools.FetchSymbol(ctx, timeout, erc721Checker.Token)
-		if err != nil {
-			symbol = "UNKNOWN"
-		}
-		items, err := setCallList(erc721.Erc721MetaData, addresses, tokenAddr, tType)
-		if err != nil {
-			return nil, err
-		}
-		callList = append(callList, items...)
-	case AssetTypeERC20:
-		items, err := setCallList(erc20.Erc20MetaData, addresses, tokenAddr, tType)
-		if err != nil {
-			return nil, err
-		}
-		callList = append(callList, items...)
-		// 绑定erc20合约
-		erc20Checker, err := erc20.NewChecker(tokenAddr, m.Client)
-		if err != nil {
-			return nil, fmt.Errorf("failed to bind token %s: %w", tokenAddr.Hex(), err)
-		}
-		symbol, err = tools.FetchSymbol(ctx, timeout, erc20Checker.Token)
-		if err != nil {
-			return nil, err
-		}
-		// 查询代币精度
-		decimals, err = erc20Checker.GetDecimal(ctx, timeout)
-		if err != nil {
-			return nil, err
+		// 从缓存中拿到数据！
+		symbol = meta.Symbol
+		decimals = meta.Decimals
+		if tType == AssetTypeERC721 {
+			items, err := setCallList(erc721.Erc721MetaData, addresses, tokenAddr, tType, "balanceOf")
+			if err != nil {
+				return nil, err
+			}
+			callList = append(callList, items...)
+		} else {
+			items, err := setCallList(erc20.Erc20MetaData, addresses, tokenAddr, tType, "balanceOf")
+			if err != nil {
+				return nil, err
+			}
+			callList = append(callList, items...)
 		}
 	default:
 		return nil, errors.New("未知代币类型")
@@ -219,7 +211,7 @@ func (m *MultiChecker) CheckToken(
 }
 
 // 辅助函数：修改 setCallList 以接受 type
-func setCallList(metaData *bind.MetaData, owners []common.Address, tokenAddr common.Address, tType string) ([]callItem, error) {
+func setCallList(metaData *bind.MetaData, owners []common.Address, tokenAddr common.Address, tType string, abiName string) ([]callItem, error) {
 	var callList []callItem
 	parsed, err := metaData.GetAbi()
 	if err != nil {
@@ -236,7 +228,7 @@ func setCallList(metaData *bind.MetaData, owners []common.Address, tokenAddr com
 			Owner:     owner,
 			Type:      tType, // 使用传入的 type
 			CallData:  data,
-			AbiName:   "balanceOf",
+			AbiName:   abiName,
 		})
 	}
 	return callList, nil
@@ -261,4 +253,52 @@ func decodeUint256(parsedAbi *abi.ABI, method string, data []byte) (*big.Int, er
 		return nil, fmt.Errorf("result is not *big.Int, type is %T", unpacked[0])
 	}
 	return balance, nil
+}
+
+// FetchTokenMeta 获取token的元数据
+func (m *MultiChecker) FetchTokenMeta(ctx context.Context, tokenAddr common.Address, timeout time.Duration) (*metadata.TokenMetadata, error) {
+	// 1. [EVM 机制]：底层调用只认 4 字节的函数选择器 (Selector)。ERC20 和 ERC721 的 name() 与 symbol() 选择器完全相同，可直接跨协议复用。
+	// 2. [容错机制]：ERC721 没有 decimals() 方法，调用时合约会 Revert。但由于下文配置了 Multicall3Call3{AllowFailure: true}，
+	//    该错误会被 Multicall 吸收，不影响 name 和 symbol 的正常返回，并在解包时安全赋零值。
+	parsedABI, err := erc20.Erc20MetaData.GetAbi()
+	if err != nil {
+		return nil, fmt.Errorf("解析本地 ABI 失败: %w", err)
+	}
+	// 组装 CallData
+	nameData, _ := parsedABI.Pack("name")
+	symbolData, _ := parsedABI.Pack("symbol")
+	decimalsData, _ := parsedABI.Pack("decimals")
+	calls := []Multicall3Call3{
+		{Target: tokenAddr, AllowFailure: true, CallData: nameData},
+		{Target: tokenAddr, AllowFailure: true, CallData: symbolData},
+		{Target: tokenAddr, AllowFailure: true, CallData: decimalsData},
+	}
+	opts, cancel := tools.CallOpts(ctx, timeout)
+	defer cancel()
+
+	// 发送 Aggregate3 请求
+	results, err := m.Multicall.Aggregate3(opts, calls)
+	if err != nil {
+		return nil, fmt.Errorf("multicall3 aggregate3 失败: %w", err)
+	}
+
+	// 解析结果
+	var name, symbol string
+	var decimals uint8
+
+	if results[0].Success && len(results[0].ReturnData) > 0 {
+		_ = parsedABI.UnpackIntoInterface(&name, "name", results[0].ReturnData)
+	}
+	if results[1].Success && len(results[1].ReturnData) > 0 {
+		_ = parsedABI.UnpackIntoInterface(&symbol, "symbol", results[1].ReturnData)
+	}
+	if results[2].Success && len(results[2].ReturnData) > 0 {
+		_ = parsedABI.UnpackIntoInterface(&decimals, "decimals", results[2].ReturnData)
+	}
+	return &metadata.TokenMetadata{
+		Address:  tokenAddr.Hex(),
+		Symbol:   symbol,
+		Name:     name,
+		Decimals: decimals,
+	}, nil
 }

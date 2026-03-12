@@ -1,10 +1,7 @@
 app:
-  # 轮询：每隔多久跑一轮“全量查询”（network × addresses × assets）
-  poll_interval: 60s
-
   retry:
     # 单次RPC失败最大重试次数
-    max_retries: 3
+    max_retries: 5
     base_delay: 2s
     max_delay: 60s
 
@@ -22,8 +19,8 @@ app:
 
   # 限流：全局每秒最多发多少个 RPC（保护你的 RPC key 和节点）
   rate_limit:
-    rps: 20      # 每秒请求数
-    burst: 40    # 突发容量
+    rps: 15      # 每秒请求数
+    burst: 30    # 突发容量
 
   # Token 元数据自动发现后的本地缓存（symbol/name/decimals 等）
   metadata_cache:
