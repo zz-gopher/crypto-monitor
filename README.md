@@ -79,7 +79,7 @@ ARB_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/你的密钥
 ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/你的密钥
 ```
 
-- 原理解释： 配置文件 config.yaml 中的 ${ETH_RPC_URL} 会自动读取这个 .env 文件里的值，实现了代码与私密配置的分离。
+- **原理解释**： 配置文件 config.yaml 中的 ${ETH_RPC_URL} 会自动读取这个 .env 文件里的值，实现了代码与私密配置的分离。
 ### 3. 核心引擎配置 (config.yaml)
 🔹 App 引擎调优 (性能与防御)
 ```yaml
