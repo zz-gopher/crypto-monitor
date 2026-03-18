@@ -29,10 +29,35 @@
 ---
 
 ## 📸 运行效果 (Demo)
+---
 ![Image](https://github.com/user-attachments/assets/3829bcb2-9d78-487c-aefd-49d07aac4a28)
+---
 
+## 📁 目录结构说明
+---
+```text
+crypto-monitor/
+├── config/             # 配置解析模块
+│   └── config.yaml     # 👈 你的核心配置文件
+├── data/
+│   ├── addresses/      # 👈 你的目标地址 TXT 文件放这里
+│   └── cache/          # 程序自动生成的元数据缓存文件
+├── internal/           # 核心业务逻辑 (私有包)
+│   ├── engine/         # 并发调度、任务生命周期与核心工作流引擎
+│   └── provider/       # 链上交互层：RPC 客户端、ABI 编解码与 Multicall 聚合
+├── output/             # 👈 程序自动生成的 CSV 结果存这里
+├── pkg/                # 公共基础组件
+│   ├── metadata/       # Token 元数据多级缓存机制
+│   └── retry/          # 网络请求容错与退避重试算法
+├── tools/              # 辅助工具类 (数据流式导出等)
+├── .env                # 👈 你的节点私钥放这里 (防泄露，需手动创建)
+├── go.mod / go.sum     # Go 模块依赖管理
+└── main.go             # 程序主入口
+```
+---
 
 ## 🛠️ 快速开始 (Quick Start)
+---
 ### 1. 安装与编译
 ```bash
 git clone https://github.com/zz-gopher/crypto-monitor.git
@@ -41,7 +66,7 @@ go build -o crypto-monitor main.go
 ```
 ### 2. 本地环境配置 (.env 文件)
 ⚠️ 重要提示： 请在项目根目录下手动创建一个名为 .env 的文件，并将以下内容复制进去。此文件已被 git 忽略，专门用于存放你的私密 RPC 链接和本地网络设置。
-```csv
+```bash
 # ====== 科学上网/代理配置 ======
 # 如果你在国内直连 RPC 节点超时，请配置你本地的代理端口
 HTTP_PROXY=http://127.0.0.1:7890
@@ -135,3 +160,17 @@ watchlists:
 ``` bash
 go run main.go -config ./config/config.yaml
 ```
+
+---
+
+## 🏗️ 架构概览 (Architecture)
+1. **配置解析层**: 加载 YAML，初始化多级缓存机制防并发击穿 (`singleflight` + `sync.Map`)。
+2. **调度层**: 控制多 Watchlist 的生命周期，初始化专属的流式 CSV Writer 与 CLI 进度条。
+3. **并发工作流**:
+    - `Semaphore` 控制本地内存的最大协程驻留量。
+    - `RateLimiter` 节流远端 RPC 请求。
+4. **底层通信**: Multicall3 打包 -> ABI 双层容错解包 -> 数据格式化输出。
+---
+
+## 🤝 贡献与许可 (License)
+本项目采用 [MIT License](LICENSE) 开源协议。欢迎提交 Pull Request 一起打造地表最强的扫币引擎！
