@@ -63,6 +63,17 @@ func (c *EvmClient) Close() {
 	}
 }
 
+// GetBlockNumber 获取当前区块高度
+func (c *EvmClient) GetBlockNumber(ctx context.Context, timeout time.Duration) (uint64, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	number, err := c.Client.BlockNumber(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return number, nil
+}
+
 // IsConnected EVM是否链接成功
 func (c *EvmClient) IsConnected() bool {
 	_, err := c.Client.BlockNumber(context.Background())

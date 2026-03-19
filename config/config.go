@@ -74,8 +74,7 @@ type OutputConfig struct {
 }
 
 type CSV struct {
-	Enabled    bool   `yaml:"enabled"`
-	Dir        string `yaml:"dir" validate:"required_if=Enabled true"`                         // 只有开启CSV时，目录才是必填的！
-	Mode       string `yaml:"mode" validate:"required_if=Enabled true,oneof=append overwrite"` // 只能是这俩词
-	FlushEvery int    `yaml:"flush_every" validate:"required_if=Enabled true,gt=0"`            // 刷盘频率必须大于 0
+	Enabled bool   `yaml:"enabled"`
+	Dir     string `yaml:"dir" validate:"required_if=Enabled true"`                         // 只有开启CSV时，目录才是必填的！
+	Mode    string `yaml:"mode" validate:"required_if=Enabled true,oneof=append overwrite"` // 只能是这俩词
 }

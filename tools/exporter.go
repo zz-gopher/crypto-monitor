@@ -10,7 +10,7 @@ import (
 )
 
 // 固定表头
-var exportHeaders = []string{"链(Chain)", "代币地址(Token)", "钱包地址(Owner)", "代币名称(Symbol)", "余额(Balance)", "精度(Decimals)", "是否成功"}
+var exportHeaders = []string{"链(Chain)", "代币地址(Token)", "钱包地址(Owner)", "代币名称(Symbol)", "余额(Balance)", "精度(Decimals)", "创建时间", "区块高度(blockNumber)", "是否成功"}
 
 // CSVExporter 生产级流式导出器
 type CSVExporter struct {
@@ -23,8 +23,8 @@ type CSVExporter struct {
 
 // NewCSVExporter 初始化导出器
 func NewCSVExporter(cfg config.CSV, path string) (*CSVExporter, error) {
-	if !cfg.Enabled {
-		return nil, nil // 如果没开启，直接返回 nil
+	if !cfg.Enabled || path == "" {
+		return nil, nil // 如果没开启或者地址为空，直接返回 nil
 	}
 
 	// 确保上级目录存在 (比如 ./output 文件夹)
@@ -47,7 +47,7 @@ func NewCSVExporter(cfg config.CSV, path string) (*CSVExporter, error) {
 		return nil, fmt.Errorf("打开 CSV 文件失败: %w", err)
 	}
 
-	// 4. 判断是否需要写 BOM 头和表头
+	// 判断是否需要写 BOM 头和表头
 	fileInfo, _ := file.Stat()
 	writer := csv.NewWriter(file)
 
@@ -63,7 +63,7 @@ func NewCSVExporter(cfg config.CSV, path string) (*CSVExporter, error) {
 	return &CSVExporter{
 		file:       file,
 		writer:     writer,
-		flushEvery: cfg.FlushEvery,
+		flushEvery: 200,
 		count:      0,
 	}, nil
 }
@@ -91,6 +91,27 @@ func (c *CSVExporter) WriteRow(row []string) error {
 		}
 		c.count = 0 // 重新计数
 	}
+	return nil
+}
+
+// WriteBatch 专为流式批处理管道设计，一次性写入多行并刷盘，极大减少锁开销
+func (c *CSVExporter) WriteBatch(rows [][]string) error {
+	if c == nil || len(rows) == 0 {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// csv.Writer 自带的 WriteAll 会遍历写入所有行，并在最后自动调用 Flush()
+	// 这样 100 条数据只需要加 1 次锁，执行 1 次 I/O 刷盘
+	if err := c.writer.WriteAll(rows); err != nil {
+		return fmt.Errorf("批量写入 CSV 失败: %w", err)
+	}
+
+	// 可选：为了保持与原有 flushEvery 逻辑的兼容，可以重置 count
+	c.count = 0
+
 	return nil
 }
 

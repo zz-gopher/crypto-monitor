@@ -5,6 +5,7 @@ import (
 	"crypto-monitor/config"
 	"crypto-monitor/internal/engine"
 	"crypto-monitor/internal/provider"
+	"crypto-monitor/internal/provider/db"
 	"crypto-monitor/internal/provider/eth/contracts/multicall3"
 	"crypto-monitor/pkg/retry"
 	"crypto-monitor/tools"
@@ -24,21 +25,19 @@ import (
 
 // QueryResult 用于在 Channel 中传递结果
 type QueryResult struct {
-	Network  string
-	Token    string
-	Balances []provider.TokenBalance
-	Error    error
+	Network     string
+	ChainId     int
+	Token       string
+	Balances    []provider.TokenBalance
+	BlockHeight uint64 //区块高度
+	Error       error
 }
 
 func main() {
 	// go run . --config ./config.yaml
 	cfgPath := flag.String("config", "./config/config.yaml", "path to config yaml")
 	flag.Parse()
-	// 设置代理
-	//_ = os.Setenv("HTTP_PROXY", "http://127.0.0.1:7890")
-	//_ = os.Setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
 	// 读取配置文件
-	// 加载 .env（可选：不存在就忽略）
 	if err := godotenv.Load(); err != nil {
 		log.Printf("warn: .env not loaded: %v (ok if you set env vars another way)", err)
 	}
@@ -77,7 +76,7 @@ func main() {
 
 	var globalSuccessCount int
 	var globalTotalExpected int
-
+	dbServer := db.InitDB() // 初始化SqlLite
 	// 根据配置文件，查询资产任务
 	for _, wl := range cfg.Watchlists {
 
@@ -125,6 +124,7 @@ func main() {
 					if asset.Token == multicall3.AssetTypeNative {
 						// 每一个批次理论上会走一次RPC,减缓了RPC的压力
 						for _, batch := range batches {
+							var currentHeight uint64
 							var tokenBalances []provider.TokenBalance
 							retryErr := retry.Do(ctxAll, cfg.App.Retry, func() error {
 								if err := limiter.Wait(ctxAll); err != nil {
@@ -132,13 +132,17 @@ func main() {
 								}
 								// 拿到令牌
 								var err error
+								currentHeight, err = runtime.Client.GetBlockNumber(ctxAll, cfg.App.Timeout)
+								if err != nil {
+									return fmt.Errorf("获取区块高度失败: %w", err)
+								}
 								tokenBalances, err = runtime.MultiChecker.CheckToken(multicall3.AssetTypeNative,
 									common.Address{}, // 自动等价于 0x000...
 									ctxAll, cfg.App.Timeout, batch)
 
 								return err
 							})
-							resultsChan <- QueryResult{Network: n, Token: runtime.NativeSymbol, Balances: tokenBalances, Error: retryErr}
+							resultsChan <- QueryResult{Network: n, ChainId: runtime.ChainID, Token: runtime.NativeSymbol, Balances: tokenBalances, BlockHeight: currentHeight, Error: retryErr}
 						}
 						return
 					}
@@ -155,6 +159,7 @@ func main() {
 						return
 					}
 					for _, batch := range batches {
+						var currentHeight uint64
 						var tokenBalances []provider.TokenBalance
 						retryError := retry.Do(ctxAll, cfg.App.Retry, func() error {
 							if err := limiter.Wait(ctxAll); err != nil {
@@ -162,13 +167,17 @@ func main() {
 							}
 							// 拿到令牌
 							var err error
+							currentHeight, err = runtime.Client.GetBlockNumber(ctxAll, cfg.App.Timeout)
+							if err != nil {
+								return fmt.Errorf("获取区块高度失败: %w", err)
+							}
 							tokenBalances, err = runtime.MultiChecker.CheckToken(
 								tokenCfg.Type,
 								common.HexToAddress(onNetwork.Contract),
 								ctxAll, cfg.App.Timeout, batch)
 							return err
 						})
-						resultsChan <- QueryResult{Network: n, Token: asset.Token, Balances: tokenBalances, Error: retryError}
+						resultsChan <- QueryResult{Network: n, ChainId: runtime.ChainID, Token: asset.Token, Balances: tokenBalances, BlockHeight: currentHeight, Error: retryError}
 					}
 				}(network, ass)
 			}
@@ -179,67 +188,55 @@ func main() {
 			close(resultsChan)
 		}()
 
-		// 主协程统一从 Channel 收集结果并组装 Map
+		dataChan := make(chan db.AssetRecord, 5000)
+		var storageWg sync.WaitGroup
+		storageWg.Add(1)
+		go func() {
+			defer storageWg.Done()
+			// 写入数据库和CSV
+			db.StartDataProcessor(dbServer, dataChan, wlExporter, cfg.Output.CSV.Enabled)
+		}()
 		var wlSuccessCount int
-		results := make(map[string]map[string][]provider.TokenBalance)
-		// 进度条初始化，只在(写CSV)时用它
 		var bar *progressbar.ProgressBar
-		if cfg.Output.CSV.Enabled {
-			// Default 参数：总量，前缀提示词
-			bar = progressbar.Default(int64(currentWlExpected), fmt.Sprintf("🚀 [%s] 扫描中", wl.Name))
-		}
+		// 进度条初始化
+		bar = progressbar.Default(int64(currentWlExpected), fmt.Sprintf("🚀 [%s] 扫描落盘中", wl.Name))
 		for res := range resultsChan {
 			if res.Error != nil {
 				fmt.Printf("❌ [%s] 读取 %s 失败: %v\n", res.Network, res.Token, res.Error)
 				continue
 			}
 
-			// 懒加载初始化 Map
-			if results[res.Network] == nil {
-				results[res.Network] = make(map[string][]provider.TokenBalance)
-			}
-			// 追加数据
-			results[res.Network][res.Token] = append(results[res.Network][res.Token], res.Balances...)
-
 			// 边接收边统计，节省一次后续的遍历
 			for _, b := range res.Balances {
-				row := []string{
-					res.Network,
-					b.TokenAddress.Hex(),
-					b.Owner.Hex(),
-					b.Symbol,
-					b.Balance.String(),
-					fmt.Sprintf("%d", b.Decimals),
-					fmt.Sprintf("%t", b.Success),
+				if !b.Success {
+					continue
 				}
-				if cfg.Output.CSV.Enabled {
-					// 写入CSV 并展示控制台
-					_ = wlExporter.WriteRow(row)
-					// 进度条 +1
-					if bar != nil {
-						_ = bar.Add(1)
-					}
-				} else {
-					// 不写文件，全量打印控制台
-					if b.Success {
-						fmt.Printf("✅ [%s] 地址: %s | 余额: %s %s\n",
-							res.Network, tools.ShortAddress(b.Owner), b.Balance.String(), res.Token)
-					} else {
-						// 如果失败了，控制台给个提示
-						fmt.Printf("⚠️  [%s] 地址: %s 代币:%s 查询失败\n", res.Network, res.Token, tools.ShortAddress(b.Owner))
-					}
+				wlSuccessCount++
+				if bar != nil {
+					_ = bar.Add(1)
 				}
-				if b.Success {
-					wlSuccessCount++
+				// 查询成功的数据才去插入数据库
+				dataChan <- db.AssetRecord{
+					WalletAddress: b.Owner.Hex(),
+					TokenContract: b.TokenAddress.Hex(),
+					ChainID:       res.ChainId,
+					TokenSymbol:   b.Symbol,
+					ChainName:     res.Network,
+					Decimals:      b.Decimals,
+					Balance:       b.Balance.String(),
+					BlockHeight:   res.BlockHeight,
 				}
 			}
 		}
-		// 关闭当前 CSV 文件句柄（确保 Flush 到磁盘）
+		// 关闭 dataChan，通知 StartDataProcessor
+		close(dataChan)
+		// 阻塞主程序，死等 StartDataProcessor 彻底写完硬盘
+		storageWg.Wait()
+		// 关闭当前 CSV 文件句柄
 		wlExporter.Close()
 
 		// 累加到全局统计
 		globalSuccessCount += wlSuccessCount
-
 		fmt.Printf("✅ 任务 [%s] 完成! 成功率: %d/%d\n", wl.Name, wlSuccessCount, currentWlExpected)
 	}
 	fmt.Printf("\n==================================================\n")
