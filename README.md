@@ -6,25 +6,30 @@
 
 **crypto-monitor** 是一个基于 Go 语言开发的高性能、防封禁的命令行 (CLI) 资产聚合扫描工具。它专为 Web3 数据分析师、空投猎人及大户地址追踪设计，能够在极低的内存占用下，以极高的吞吐量完成多链、多代币的海量地址余额快照。
 
-> 💡 **设计初衷：** 解决传统 Web3 脚本在面对十万级地址扫描时经常遇到的 **RPC 限流封禁 (HTTP 429)**、**内存溢出 (OOM)** 以及 **上古非标合约解析崩溃** 等痛点。
+> 💡 **设计初衷：** 解决传统 Web3 脚本在面对十万级地址扫描时经常遇到的 **RPC 限流封禁 (HTTP 429)**、**内存溢出 (OOM)** 以及 **多链资产覆盖乱码** 以及 **程序崩溃丢失** 等痛点。
 
 ---
 
 ## ✨ 核心硬核特性 (Features)
 
-- ⚡ **极致并发与 RPC 节流 (Multicall3)**
-    - 基于协程池与 Channel 构筑生产消费模型。
-    - 深度集成 Multicall3 智能合约，将成百上千个散碎的 RPC 请求打包聚合，**网络 I/O 开销降低 90%**。
-- 🛡️ **微秒级平滑限流 (Token Bucket Rate Limiting)**
+- ⚡ **CSP 三级并发流水线与背压控制 (Backpressure)**
+    - 摒弃传统单线程阻塞模型，构筑 网络请求 -> 数据清洗 -> 异步落盘 的三级流水线。。
+    - 引入带有 5000 容量缓冲的 Channel，完美实现内存物理隔离与反向背压限制，榨干单机性能的同时杜绝 **OOM**。
+- 🛡️ **微秒级平滑限流与 RPC 聚合 (Multicall3)**
+    - 深度集成 Multicall3 智能合约，将成百上千个 RPC 请求打包，**网络 I/O 开销降低 90%**。。
     - 内置基于“令牌桶算法”的全局限流器，精准控制每秒请求数 (RPS) 与突发流量 (Burst)，完美规避免费 RPC 节点的 IP 封禁机制。
-- 💾 **防 OOM 的流式数据落盘**
-    - 摒弃传统的“全量内存聚合”模式，采用边查边写的流式 CSV 导出引擎。
-    - 支持 `append` 断点续写与 `flush_every` 定期刷盘，百万级数据扫描时内存占用始终保持在常数级 **O(1)**。
-- 🧬 **双层降级解码 (兼容非标合约)**
-    - 底层重写 `go-ethereum` 的 ABI 解包逻辑。
-    - 独创 `string / bytes32` 降级解码器，完美兼容 MakerDAO (MKR) 等 2017 年远古非标 ERC-20 合约，实现全链代币 100% 容错解析。
-- 🎨 **现代化 CLI 极客体验**
-    - 提供 测试 / 跑批 双模式。跑批模式下实施绝对静默策略 (Silent Mode)，彻底杜绝高并发写入时的终端花屏撕裂，仅保留高保真动态进度条 (ETA) 实时掌控全局扫描进度。。
+- 💾 **企业级冷热数据双写架构 (SQLite + CSV)**
+    - **零 CGO 依赖**：采用纯 Go 版 SQLite 驱动 (glebarez/sqlite)，实现跨平台一键交叉编译，告别繁琐的 GCC 环境配置。
+    - **双表状态分离**：实时维护 AssetRecord (热数据状态表) 与 AssetHistoryLog (冷数据流水表)。
+    - **绝对的一致性**：利用本地事务 (Transaction) 包裹 DB 双写，结合 ON CONFLICT 实现单次网络交互的高性能批量 Upsert。
+- 🧬 **Web3 数据防御机制 (Defensive Programming)**
+    - **多链防覆盖**：数据库底层采用 WalletAddress + TokenContract + ChainID 的三位一体联合唯一索引。
+    - **防脏读快照**：引入前置 BlockHeight 时间戳快照，强绑定至批次数据，彻底消除网络延迟导致的并发乱序脏读。
+    - **脏数据拦截**：严格校验 Success 标识，主动降级丢弃单条异常数据，防止“虚假归零(False Zero)”污染状态库。
+- 🎨 **现代化 CLI 与优雅关机 (Graceful Shutdown)**
+    - 采用双重触发机制（100条阈值 + 2秒 Ticker）防止尾部数据滞留内存。
+    - 支持多路旁路输出，主干 DB 失败严格回滚，旁路 CSV 失败优雅降级。
+    - 内置高保真动态进度条，支持安全的上下文取消与资源回收。
 
 ---
 
@@ -44,13 +49,14 @@ crypto-monitor/
 │   └── cache/          # 程序自动生成的元数据缓存文件
 ├── internal/           # 核心业务逻辑 (私有包)
 │   ├── engine/         # 并发调度、任务生命周期与核心工作流引擎
-│   └── provider/       # 链上交互层：RPC 客户端、ABI 编解码与 Multicall 聚合
+│   └── provider/       # 链上交互层：RPC 客户端、ABI 编解码与 Multicall 聚合、DB服务
 ├── output/             # 👈 程序自动生成的 CSV 结果存这里
 ├── pkg/                # 公共基础组件
 │   ├── metadata/       # Token 元数据多级缓存机制
 │   └── retry/          # 网络请求容错与退避重试算法
 ├── tools/              # 辅助工具类 (数据流式导出等)
 ├── .env                # 👈 你的节点私钥放这里 (防泄露，需手动创建)
+├── main_monitor.db   # 🤖 以config.yaml的watchlists的name字段程序自动生成的 SQLite 本地强一致性数据库
 ├── go.mod / go.sum     # Go 模块依赖管理
 └── main.go             # 程序主入口
 ```
@@ -107,10 +113,9 @@ app:
 ```yaml
 output:
   csv:
-    enabled: true        # 开关：设为 false 时屏幕疯狂打印结果（适合测试）；设为 true 时屏幕静默，数据全进 CSV（适合跑批）
+    enabled: true        # 开关：设为 true 时屏幕静默，数据全进 CSV
     dir: "./output"      # 报告存放地：生成的 csv 文件会存放在这个文件夹下
     mode: append         # 写入模式：append 代表追加，即使程序意外崩溃，重启后也会接着文件末尾继续写，不会清空历史数据
-    flush_every: 200     # 刷盘频率：每查到 200 条数据就强制存入硬盘一次，防止断电导致内存数据丢失
 ```
 🔹 Networks & Tokens 链与资产字典
 ```yaml
@@ -163,13 +168,25 @@ go run main.go -config ./config/config.yaml
 
 ---
 
-## 🏗️ 架构概览 (Architecture)
-1. **配置解析层**: 加载 YAML，初始化多级缓存机制防并发击穿 (`singleflight` + `sync.Map`)。
-2. **调度层**: 控制多 Watchlist 的生命周期，初始化专属的流式 CSV Writer 与 CLI 进度条。
-3. **并发工作流**:
-    - `Semaphore` 控制本地内存的最大协程驻留量。
-    - `RateLimiter` 节流远端 RPC 请求。
-4. **底层通信**: Multicall3 打包 -> ABI 双层容错解包 -> 数据格式化输出。
+## 🏗️ 架构概览 (Pipeline Architecture)
+
+本项目采用现代流式数据处理的标准 **三级流水线 (3-Stage CSP Pipeline)** 设计：
+
+### 1. 生产者层 (Network/RPC)
+* 令牌桶限流器拦截超额流量。
+* 获取当前链 `BlockHeight` 作为一致性快照。
+* Multicall3 批量获取余额，`Success` 标识校验，通过 Channel 发送 `QueryResult`。
+
+### 2. 中间层 (UI & Transformer)
+* 主协程接收结果，驱动终端高保真进度条 (`progressbar`)。
+* 过滤脏数据，将底层结构转换为 DB 实体模型 `AssetRecord`。
+* 将数据推入拥有 5000 缓冲容量的 `dataChan`，利用阻塞机制实现反向背压。
+
+### 3. 消费者层 (Storage Daemon)
+* 独立的后台存储守护进程监听 `dataChan`。
+* 满 100 条或满 2 秒 (Ticker) 触发一次刷盘逻辑。
+* 开启本地 `Transaction`，执行状态表 Upsert 与流水表 Insert。
+* DB 落盘成功后，通过 `WriteBatch` 零锁开销将数据追加至 CSV 旁路。
 ---
 
 ## 🤝 贡献与许可 (License)
