@@ -38,9 +38,9 @@ type AssetHistoryLog struct {
 }
 
 // InitDB 初始化SqlLite
-func InitDB() *gorm.DB {
+func InitDB(dbName string) *gorm.DB {
 	// 自动在本地生成一个名为 crypto_monitor.db 的文件
-	db, err := gorm.Open(sqlite.Open("crypto_monitor.db"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(dbName+".db"), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("数据库连接失败: %v", err)
 	}

@@ -76,9 +76,9 @@ func main() {
 
 	var globalSuccessCount int
 	var globalTotalExpected int
-	dbServer := db.InitDB() // 初始化SqlLite
 	// 根据配置文件，查询资产任务
 	for _, wl := range cfg.Watchlists {
+		dbServer := db.InitDB(wl.Name) // 初始化SqlLite
 
 		// 为当前 Watchlist 准备独立的 CSV
 		wlConfig := cfg.Output.CSV
