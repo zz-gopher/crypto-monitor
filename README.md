@@ -56,7 +56,7 @@ crypto-monitor/
 │   └── retry/          # 网络请求容错与退避重试算法
 ├── tools/              # 辅助工具类 (数据流式导出等)
 ├── .env                # 👈 你的节点私钥放这里 (防泄露，需手动创建)
-├── main_monitor.db   # 🤖 以config.yaml的watchlists的name字段程序自动生成的 SQLite 本地强一致性数据库
+├── main_monitor.db   # 🤖 以config.yaml的watchlists的name字段自动生成的 SQLite 本地强一致性数据库
 ├── go.mod / go.sum     # Go 模块依赖管理
 └── main.go             # 程序主入口
 ```
