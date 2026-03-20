@@ -64,6 +64,12 @@ func StartDataProcessor(db *gorm.DB, dataChan <-chan AssetRecord, exporter *tool
 			err := tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "wallet_address"}, {Name: "token_contract"}, {Name: "chain_id"}},
 				DoUpdates: clause.AssignmentColumns([]string{"balance", "block_height", "updated_at"}),
+				Where: clause.Where{
+					Exprs: []clause.Expression{
+						// 只有当传入的新高度 (excluded) >= 表里现存的老高度时，才执行覆盖更新
+						clause.Expr{SQL: "excluded.block_height >= block_height"},
+					},
+				},
 			}).CreateInBatches(batch, len(batch)).Error
 			if err != nil {
 				return err
